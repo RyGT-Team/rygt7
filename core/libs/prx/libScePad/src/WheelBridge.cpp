@@ -218,10 +218,9 @@ void ApplyWheel(PadInputState& state) {
     fromWheel.buttons = 0;
     input->Apply(fromWheel);
     if (wheelOpened.load() && !Wheel().padIsWheel) {
-        // The window's controller code may have the wheel open as a gamepad too. (With the pad
-        // reporting itself as the wheel, the title is in wheel mode and shifts with L1/R1.)
-        fromWheel.buttons &= ~static_cast<std::uint32_t>(0x0C00);
-        state.buttons &= ~static_cast<std::uint32_t>(0x0C00);
+        // The wheel's buttons (shift paddles, rim buttons, dpad) reach the game through the
+        // wheel device alone; on the ordinary pad they would also fire the pad's bindings.
+        fromWheel.buttons = 0;
     }
     state.buttons |= fromWheel.buttons;
     for (std::size_t axis = 0; axis < state.sticks.size(); ++axis) {
