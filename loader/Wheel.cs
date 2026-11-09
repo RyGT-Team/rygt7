@@ -23,6 +23,7 @@ namespace RyGT
             public int Instance;
             public string Name;
             public bool IsWheel;
+            public bool Haptic;
             public int[] Axes = new int[0];
             public HashSet<int> Buttons = new HashSet<int>();
             public int[] Hats = new int[0];
@@ -148,7 +149,7 @@ namespace RyGT
 
         void OnProbeLine(string line)
         {
-            var parts = line.Split(new[] { ' ' }, 9);
+            var parts = line.Split(new[] { ' ' }, 10);
             lock (Gate)
             {
                 if (parts[0] == "devices")
@@ -158,11 +159,13 @@ namespace RyGT
                 }
                 else if (parts[0] == "device" && parts.Length >= 9)
                 {
+                    // The new probe adds a haptic field (parts[5]); an old probe exe sends 9 fields.
                     var device = new Device
                     {
                         Instance = int.Parse(parts[1], CultureInfo.InvariantCulture),
                         IsWheel = parts[4] == "1",
-                        Name = parts[8]
+                        Haptic = parts.Length >= 10 && parts[5] == "1",
+                        Name = parts[parts.Length - 1]
                     };
                     devices[device.Instance] = device;
                     deviceOrder.Add(device.Instance);
@@ -178,14 +181,34 @@ namespace RyGT
             }
         }
 
-        /// The devices the probe found (take Gate).
-        public List<Device> Devices { get { return deviceOrder.Select(id => devices[id]).ToList(); } }
+        // Preference rank for listing and name resolution, WheelInput::primary's order: a haptic
+        // wheel first, then other wheels, then devices with axes, then the rest.
+        static int Rank(Device d)
+        {
+            if (d.IsWheel && d.Haptic) return 0;
+            if (d.IsWheel) return 1;
+            if (d.Axes.Length > 0) return 2;
+            return 3;
+        }
 
-        /// The device libScePad uses when a line names none: the first wheel, else the first device with axes.
+        // deviceOrder with the haptic wheel first, probe order kept within a rank (take Gate).
+        List<int> PriorityOrder()
+        {
+            return deviceOrder.Select((id, i) => new { id, i, rank = Rank(devices[id]) })
+                .OrderBy(x => x.rank).ThenBy(x => x.i).Select(x => x.id).ToList();
+        }
+
+        /// The devices the probe found, the haptic wheel first (take Gate).
+        public List<Device> Devices { get { return PriorityOrder().Select(id => devices[id]).ToList(); } }
+
+        /// The device libScePad uses when a line names none: the first wheel that opens a haptic
+        /// device (WheelInput::primary's order), else the first wheel, else the first device with axes.
         public Device Primary()
         {
-            foreach (var id in deviceOrder) if (devices[id].IsWheel) return devices[id];
-            foreach (var id in deviceOrder) if (devices[id].Axes.Length > 0) return devices[id];
+            var order = PriorityOrder();
+            foreach (var id in order) if (devices[id].IsWheel && devices[id].Haptic) return devices[id];
+            foreach (var id in order) if (devices[id].IsWheel) return devices[id];
+            foreach (var id in order) if (devices[id].Axes.Length > 0) return devices[id];
             return null;
         }
 
@@ -193,7 +216,7 @@ namespace RyGT
         {
             if (row.DeviceName == null) return Primary();
             var wanted = row.DeviceName.ToLowerInvariant();
-            foreach (var id in deviceOrder) if (devices[id].Name.ToLowerInvariant().Contains(wanted)) return devices[id];
+            foreach (var id in PriorityOrder()) if (devices[id].Name.ToLowerInvariant().Contains(wanted)) return devices[id];
             return null;
         }
 
@@ -223,13 +246,13 @@ namespace RyGT
             return Math.Max(0, Math.Min(1000, value));
         }
 
-        /// What the probe reads right now, one line per device (take Gate).
+        /// What the probe reads right now, one line per device, the haptic wheel first (take Gate).
         public string RawInput()
         {
-            return string.Join(Environment.NewLine, deviceOrder.Select(id =>
+            return string.Join(Environment.NewLine, PriorityOrder().Select(id =>
             {
                 var d = devices[id];
-                return d.Name + ": axes " + string.Join(" ", d.Axes.Select((v, i) => i + ":" + (v * 100 / 32768).ToString(CultureInfo.InvariantCulture) + "%")) +
+                return d.Name + (d.Haptic ? " (haptic)" : "") + ": axes " + string.Join(" ", d.Axes.Select((v, i) => i + ":" + (v * 100 / 32768).ToString(CultureInfo.InvariantCulture) + "%")) +
                        "   buttons " + (d.Buttons.Count == 0 ? "none" : string.Join(",", d.Buttons.OrderBy(b => b))) +
                        (d.Hats.Length > 0 && d.Hats[0] != 0 ? "   hat " + d.Hats[0] : "");
             }).ToArray());

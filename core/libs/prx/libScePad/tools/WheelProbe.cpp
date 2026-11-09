@@ -3,7 +3,7 @@
 // wheel mapping window sees the same devices and the same axis/button numbers as the game.
 //
 // Output, one line each, flushed:
-//   device <instance> <vid> <pid> <wheel 0|1> <axes> <buttons> <hats> <name>   (after "devices")
+//   device <instance> <vid> <pid> <wheel 0|1> <haptic 0|1> <axes> <buttons> <hats> <name>   (after "devices")
 //   state <instance> <axis,axis,...> <pressed button,...|-> <hat,hat,...|->
 // "devices" starts a new device list whenever one is connected or removed. The program exits
 // when the process given as its first argument ends.
@@ -59,11 +59,16 @@ void Rescan() {
         if (!wheel && SDL_IsGameController(index)) continue;
         SDL_Joystick* joystick = SDL_JoystickOpen(index);
         if (joystick == nullptr) continue;
+        // Haptic, the way WheelInput sees it: a haptic device must open from the joystick
+        // (the haptic subsystem is initialized at startup so this can find the device).
+        SDL_Haptic* hapticDevice = SDL_HapticOpenFromJoystick(joystick);
+        const bool haptic = hapticDevice != nullptr;
+        if (hapticDevice != nullptr) SDL_HapticClose(hapticDevice);
         const char* name = SDL_JoystickName(joystick);
         Device device{joystick, SDL_JoystickInstanceID(joystick), wheel};
         devices.push_back(device);
-        std::printf("device %d %04x %04x %d %d %d %d %s\n", device.instance, SDL_JoystickGetVendor(joystick), SDL_JoystickGetProduct(joystick),
-            wheel ? 1 : 0, SDL_JoystickNumAxes(joystick), SDL_JoystickNumButtons(joystick), SDL_JoystickNumHats(joystick),
+        std::printf("device %d %04x %04x %d %d %d %d %d %s\n", device.instance, SDL_JoystickGetVendor(joystick), SDL_JoystickGetProduct(joystick),
+            wheel ? 1 : 0, haptic ? 1 : 0, SDL_JoystickNumAxes(joystick), SDL_JoystickNumButtons(joystick), SDL_JoystickNumHats(joystick),
             name != nullptr ? name : "unknown");
     }
     std::fflush(stdout);
@@ -86,6 +91,12 @@ int main(int argc, char** argv) {
     if (SDL_Init(SDL_INIT_JOYSTICK) != 0) {
         std::printf("error %s\n", SDL_GetError());
         return 1;
+    }
+    // Haptics, best-effort: SDL_HapticOpenFromJoystick only sees devices the haptic subsystem
+    // has enumerated, and it does not initialize it itself. If this fails every device below
+    // reports haptic 0 and the launcher falls back to the first wheel, as before.
+    if (SDL_InitSubSystem(SDL_INIT_HAPTIC) != 0) {
+        std::printf("error haptic %s\n", SDL_GetError());
     }
     Rescan();
     for (;;) {
