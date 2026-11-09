@@ -4,12 +4,13 @@
 //
 // Output, one line each, flushed:
 //   device <instance> <vid> <pid> <wheel 0|1> <haptic 0|1> <axes> <buttons> <hats> <name>   (after "devices")
-//   state <instance> <axis,axis,...> <pressed button,...|-> <hat,hat,...|->
+//   state <instance> <axis,axis,...> <pressed button,...|-> <hat,hat,...|-> <rest,rest,...|->
 // "devices" starts a new device list whenever one is connected or removed. The program exits
 // when the process given as its first argument ends.
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -46,6 +47,11 @@ struct Device {
     SDL_Joystick* joystick;
     SDL_JoystickID instance;
     bool wheel;
+    // Where each axis rests, captured like WheelInput does: at the first real report (any axis
+    // away from zero) a moment after open, or after two seconds for a device that rests at zero.
+    std::vector<int> rest;
+    bool restCaptured = false;
+    std::chrono::steady_clock::time_point restAt;
 };
 
 std::vector<Device> devices;
@@ -66,6 +72,7 @@ void Rescan() {
         if (hapticDevice != nullptr) SDL_HapticClose(hapticDevice);
         const char* name = SDL_JoystickName(joystick);
         Device device{joystick, SDL_JoystickInstanceID(joystick), wheel};
+        device.restAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
         devices.push_back(device);
         std::printf("device %d %04x %04x %d %d %d %d %d %s\n", device.instance, SDL_JoystickGetVendor(joystick), SDL_JoystickGetProduct(joystick),
             wheel ? 1 : 0, haptic ? 1 : 0, SDL_JoystickNumAxes(joystick), SDL_JoystickNumButtons(joystick), SDL_JoystickNumHats(joystick),
@@ -110,9 +117,24 @@ int main(int argc, char** argv) {
         }
         if (changed) Rescan();
         SDL_JoystickUpdate();
-        for (const auto& device : devices) {
-            std::string line = "state " + std::to_string(device.instance) + " ";
+        const auto now = std::chrono::steady_clock::now();
+        for (auto& device : devices) {
             const int axes = SDL_JoystickNumAxes(device.joystick);
+            if (!device.restCaptured && now >= device.restAt) {
+                bool reported = false;
+                for (int axis = 0; axis < axes; ++axis) {
+                    if (SDL_JoystickGetAxis(device.joystick, axis) != 0) {
+                        reported = true;
+                        break;
+                    }
+                }
+                if (reported || now >= device.restAt + std::chrono::milliseconds(1700)) {
+                    device.rest.assign(static_cast<std::size_t>(axes), 0);
+                    for (int axis = 0; axis < axes; ++axis) device.rest[axis] = SDL_JoystickGetAxis(device.joystick, axis);
+                    device.restCaptured = true;
+                }
+            }
+            std::string line = "state " + std::to_string(device.instance) + " ";
             for (int axis = 0; axis < axes; ++axis) {
                 if (axis > 0) line += ',';
                 line += std::to_string(SDL_JoystickGetAxis(device.joystick, axis));
@@ -133,6 +155,18 @@ int main(int argc, char** argv) {
             }
             line += ' ';
             line += hats.empty() ? "-" : hats;
+            // The resting axis values, "-" before they are captured.
+            if (device.restCaptured) {
+                std::string rest;
+                for (int axis = 0; axis < axes; ++axis) {
+                    if (axis > 0) rest += ',';
+                    rest += std::to_string(device.rest[axis]);
+                }
+                line += ' ';
+                line += axes > 0 ? rest : "-";
+            } else {
+                line += " -";
+            }
             std::printf("%s\n", line.c_str());
         }
         std::fflush(stdout);
