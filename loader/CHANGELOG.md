@@ -6,6 +6,13 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.1.4 - 2026-11-13
+
+* FEAT-GTS-255: Profiles on the Advanced page (from RyGTS FEAT-GTS-270). A dropdown of saved
+  profiles with Save and Load next to it: Save keeps the current switches and other variables under
+  a name (`launcher\profiles\<name>.ini`, the same `env=` lines as `RyGT7.ini`), Load replaces them
+  with a profile's, to swap between configurations instead of tracking several similar switches.
+
 ## 0.1.3 - 2026-11-13
 
 * FEAT-GT7-161: Photos the game's gallery exports (Export on a Scapes or race photo) are written as
