@@ -10,6 +10,10 @@ come from the same DLL: `"RYGTSW1|NAME|kind|group|default|values|description"` s
 
 - **Adding a renderer switch:** add its description line in shadgt7's `src/video_core/rygt_switches.cpp`
   (format in shadgt7's `AGENTS.md`). Do not add switch names, tooltips or defaults to the launcher.
+- **Adding a switch read by the ryGT7 runtime** (`core/`): the walker reads every `libs\*.prx`, the
+  runtime modules included (ASCII and UTF-16 names, so `_wgetenv(L"RYGT_...")` is found), so it is
+  listed. Describe it in shadgt7's `src/video_core/rygt_switches.cpp` like a renderer switch (group
+  `Runtime` or the one that fits); the walker takes descriptions from any of the files.
 - **A variable the launcher always sets itself** (in `StartGame`): add it to
   `SwitchWalker.LauncherManaged` so the page does not offer it.
 - The launcher compiles with the .NET Framework 4 `csc`: **C# 5** only (no local functions, `out var`,

@@ -28,6 +28,14 @@ is not listed. Switches the launcher always sets from its own settings (`RYGT_LO
 ones always show). Search matches names and descriptions; "Only changed" shows what is set; Reset all
 returns every switch to its default. Delete on a setting returns it to the default.
 
+## Runtime switches (FEAT-GTS-256)
+
+Besides the renderer, the walker reads every other `libs\*.prx`: the runtime modules (libkernel, libc,
+libScePad, libSceNet, libSceUserService, ...) read switches of their own, some as UTF-16 strings
+(`_wgetenv(L"RYGT_USER_NAME")`), which the walker reads too. Their descriptions come from shadgt7's
+table like the renderer's. Reading all the modules takes about half a second, so the page is built
+the first time it is opened, not when the launcher starts.
+
 ## Profiles (FEAT-GTS-255)
 
 The Profile row above the table keeps named sets of the page's settings, to swap between
