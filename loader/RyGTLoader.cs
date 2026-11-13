@@ -2354,12 +2354,23 @@ namespace RyGT
                        "large logs; hover a switch for what it does. Saved as you change them; used the next time the game starts.",
                 AutoSize = true, MaximumSize = new Size(900, 0), ForeColor = Dark.DimText, Tag = "heading", Margin = new Padding(2, 0, 0, 0)
             });
-            AdvancedPage.Build(advancedContent, advancedTitle, Dark.Card, root, settings.Env, list =>
+            // FEAT-GTS-256: built the first time the page is shown: the walk reads every libs\*.prx (the
+            // renderer and the runtime modules), which most players, with the page hidden, never need.
+            bool advancedBuilt = false;
+            advancedPanel.VisibleChanged += delegate
             {
-                settings.Env = list;
-                try { settings.Save(); }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the switches: " + e.Message); }
-            });
+                if (advancedBuilt || !advancedPanel.Visible) return;
+                advancedBuilt = true;
+                advancedContent.SuspendLayout();
+                AdvancedPage.Build(advancedContent, advancedTitle, Dark.Card, root, settings.Env, list =>
+                {
+                    settings.Env = list;
+                    try { settings.Save(); }
+                    catch (Exception e) { MessageBox.Show(this, "Could not save the switches: " + e.Message); }
+                });
+                Dark.Apply(advancedContent);
+                advancedContent.ResumeLayout(true);
+            };
             Action<bool> showAdvanced = delegate (bool on)
             {
                 pageItems["Advanced"].Visible = on;
