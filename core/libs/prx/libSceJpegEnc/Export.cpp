@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <stdexcept>
@@ -147,9 +148,27 @@ std::vector<std::uint8_t> toPackedPixels(const JpegEncEncodeParam& param, std::u
     return pixels;
 }
 
+// RYGT_JPEG_SUBSAMPLED_CAP=1 caps a subsampled request at quality 90 again, the cap before FIX-GT7-173
+// (the exact quality mapping stays).
+bool subsampledCap() {
+    static const bool cap = [] {
+        const char* value = std::getenv("RYGT_JPEG_SUBSAMPLED_CAP");
+        return value != nullptr && std::strcmp(value, "1") == 0;
+    }();
+    return cap;
+}
+
+// FIX-GT7-173: the quality the caller asks for is encoded.
+// - compression_ratio is read back with the inverse of GT7's own formula (FUN_14305a420: ratio =
+//   (100 - quality) / 100 * 255), which gives back each quality 1-100 exactly; 100 - ratio * 99 / 255
+//   was one or two too high for 99 of them (97 gave 98, 1 gave 3).
+// - Colour images can only ask for 4:2:2 or 4:2:0 (validateEncodeParam). stb_image_write writes 4:2:0 at
+//   quality 90 or less and 4:4:4 above, so a request above 90 gets more chroma than asked, never less.
+//   Every subsampled request used to be capped at 90 to keep stb's 4:2:0: GT7's gallery Export, which asks
+//   for 4:2:2 at quality 97, came out at 90, 4:2:0. Its output buffer is width x height x 4.
 int toQuality(const JpegEncEncodeParam& param) {
-    int quality = 100 - param.compression_ratio * 99 / 255;
-    if (param.sampling_type != SAMPLING_TYPE_FULL) quality = std::min(quality, SUBSAMPLED_MAX_QUALITY);
+    int quality = std::max(1, 100 - (param.compression_ratio * 100 + 127) / 255);
+    if (subsampledCap() && param.sampling_type != SAMPLING_TYPE_FULL) quality = std::min(quality, SUBSAMPLED_MAX_QUALITY);
     return quality;
 }
 
@@ -187,7 +206,13 @@ int32_t APS5_VABI sceJpegEncEncode(void* handle, const JpegEncEncodeParam* param
 
     const std::uint32_t channels = param->pixel_format == PIXEL_FORMAT_Y8 ? 1 : 3;
     const std::vector<std::uint8_t> pixels = toPackedPixels(*param, channels);
-    const std::vector<std::uint8_t> jpeg = Decoder::Jpeg::Encode(pixels, param->image_width, param->image_height, channels, toQuality(*param));
+    const int quality = toQuality(*param);
+    std::vector<std::uint8_t> jpeg = Decoder::Jpeg::Encode(pixels, param->image_width, param->image_height, channels, quality);
+    // FIX-GT7-173: above the old cap, a very noisy image at quality 99-100 can outgrow a width x height x 4
+    // buffer (GT7's); it is encoded again at the old cap rather than failing where it used to succeed.
+    if (jpeg.size() > param->jpeg_size && param->sampling_type != SAMPLING_TYPE_FULL && quality > SUBSAMPLED_MAX_QUALITY) {
+        jpeg = Decoder::Jpeg::Encode(pixels, param->image_width, param->image_height, channels, SUBSAMPLED_MAX_QUALITY);
+    }
     if (jpeg.size() > param->jpeg_size) return SCE_JPEG_ENC_ERROR_INVALID_SIZE;
 
     std::memcpy(param->jpeg, jpeg.data(), jpeg.size());
