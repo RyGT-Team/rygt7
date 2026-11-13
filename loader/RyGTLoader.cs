@@ -1781,6 +1781,15 @@ namespace RyGT
             var methodNote = noteLabel();
             upscaling.Controls.Add(comboRow("Method", method, methodNote));
             upscaling.Controls.Add(methodNote);
+            // FEAT-GT7-180: shown when a configuration saved before has both NVIDIA DLSS and the PS4 Pro
+            // 3200 x 1800 picture on (see the PS4 Pro mode section).
+            var methodProWarning = noteLabel();
+            methodProWarning.ForeColor = Dark.AccentText;
+            methodProWarning.Text = "NVIDIA DLSS and the PS4 Pro 3200 x 1800 picture are both on, and they do not go together. " +
+                                    "Pick another method here, or in PS4 Pro mode below pick \"PS4 (no Pro mode)\" or " +
+                                    "\"PS4 Pro, 1080p TV\", or untick the 3200 x 1800 box.";
+            methodProWarning.Visible = false;
+            upscaling.Controls.Add(methodProWarning);
 
             // Quality: the size the upscaler scales to. The game always draws 1920x1080, so a mode
             // picks the output (the picture times 1.5, 1.72, 2 or 3), which is then fitted to the
@@ -1815,6 +1824,12 @@ namespace RyGT
             fg.Items.AddRange(new object[] { "Off", "AMD FSR 3.1 (any GPU)", "NVIDIA DLSS (RTX 40+)" });
             var fgNote = noteLabel();
             frameGen.Controls.Add(comboRow("Method", fg, fgNote));
+            // FEAT-GT7-180: shown, in the warning colour, while NVIDIA DLSS frame generation is the method.
+            var fgAdvice = noteLabel();
+            fgAdvice.ForeColor = Dark.AccentText;
+            fgAdvice.Text = "Not recommended for now: in our tests the game ran smoother without NVIDIA DLSS frame generation.";
+            fgAdvice.Visible = false;
+            frameGen.Controls.Add(fgAdvice);
             var mult = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
             mult.Items.AddRange(new object[] { "2x", "3x (RTX 50)", "4x (RTX 50)", "5x (RTX 50)", "6x (RTX 50)" });
             mult.SelectedIndex = Math.Max(1, Math.Min(5, ReadIntSetting("GPU", "dlssg_frames", 1))) - 1;
@@ -1901,6 +1916,19 @@ namespace RyGT
             var proNote = noteLabel();
             pro.Controls.Add(comboRow("Mode", proMode, proNote));
             pro.Controls.Add(proNote);
+            // FEAT-GT7-180: NVIDIA DLSS and the 3200 x 1800 checkerboard picture are not offered together. The
+            // game rebuilds that picture from several frames itself, and DLSS on top cost about 6 ms of GPU time
+            // a frame on an RTX 4070 (the only GPU it was measured on). Picking one while the other is on is
+            // refused with a message; a configuration saved before with both gets a warning in both sections.
+            // The rule is this page's: a RYGT_NEO set from the Advanced page's own variables is not checked.
+            var proDlssWarning = noteLabel();
+            proDlssWarning.ForeColor = Dark.AccentText;
+            proDlssWarning.Text = "The 3200 x 1800 picture and NVIDIA DLSS are both on, and they do not go together. " +
+                                  "Untick the 3200 x 1800 box, or pick another upscaling method above.";
+            proDlssWarning.Visible = false;
+            pro.Controls.Add(proDlssWarning);
+            int lastPro = proMode.SelectedIndex;
+            bool proReverting = false;
             var proBoxKeys = new[] { "ps4_pro_checkerboard", "ps4_pro_blur", "ps4_pro_replays60", "ps4_pro_replay_blur",
                                      "ps4_pro_garage60", "ps4_pro_lod" };
             var proBoxTexts = new[]
@@ -1916,12 +1944,28 @@ namespace RyGT
             for (int i = 0; i < proBoxKeys.Length; i++) proBoxes[i] = AddOption(pro, proBoxTexts[i], "GPU", proBoxKeys[i], false);
             pro.Controls.Add(Hint("The game's own PS4 Pro settings. A mode ticks the boxes as that console has them; change a box to make " +
                                   "your own (Custom). Every box costs GPU time, the checkerboard most. Applies at the next game start."));
-            pro.Controls.Add(Hint("Checked on an NVIDIA RTX 4070 only, where the game alone used about 5 GB of video memory in a race with everything on. " +
-                                  "With the checkerboard a race can drop below 30 fps. Without the checkerboard, the boxes run in the PS4 " +
-                                  "mode, except all five together: that is the PS4 Pro 1080p TV mode."));
+            // Checked on an NVIDIA RTX 4070 only, where the game alone used about 5 GB of video memory in a race with
+            // everything on. With the checkerboard a race can drop below 30 fps. Without the checkerboard, the boxes
+            // run in the PS4 mode, except all five together: that is the PS4 Pro 1080p TV mode.
             bool proApplying = false;
+            // FEAT-GT7-180: GPU.dlss_enabled can be saved on while the list shows another method (the NVIDIA files
+            // are missing). Turning the 3200 x 1800 picture on then switches that setting off, or adding the
+            // files later would bring both on without a word.
+            Action proDropUnshownDlss = delegate
+            {
+                if (method.SelectedIndex == 3 || !ReadSetting("GPU", "dlss_enabled", false)) return;
+                try { WriteSetting("GPU", "dlss_enabled", false); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+            Action proDlssRefresh = delegate
+            {
+                bool both = proBoxes[0].Checked && method.SelectedIndex == 3;
+                methodProWarning.Visible = both;
+                proDlssWarning.Visible = both;
+            };
             Action proRefresh = delegate
             {
+                proDlssRefresh();
                 int p = proMode.SelectedIndex;
                 proNote.Text = p == 0 ? "As a PS4: native 1920 x 1080, no box ticked."
                              : p == 1 ? "As a PS4 Pro on a 4K TV: the checkerboard picture, the other settings off."
@@ -1955,9 +1999,22 @@ namespace RyGT
             };
             foreach (var box in proBoxes)
             {
+                var changed = box;
                 box.CheckedChanged += delegate
                 {
                     if (proApplying) return;
+                    if (changed == proBoxes[0] && changed.Checked && method.SelectedIndex == 3)
+                    {
+                        // FEAT-GT7-180: not with NVIDIA DLSS. The box is unticked before the message (its own
+                        // handler has already saved it ticked), and the mode stays as it is: Custom stays Custom.
+                        proApplying = true;
+                        changed.Checked = false;
+                        proApplying = false;
+                        MessageBox.Show(this, "The 3200 x 1800 picture cannot be used with NVIDIA DLSS: the game already rebuilds " +
+                                              "that picture itself. Pick another upscaling method first.");
+                        return;
+                    }
+                    if (changed == proBoxes[0] && changed.Checked) proDropUnshownDlss();
                     int boxesMode = proModeOfBoxes();
                     if (boxesMode != proMode.SelectedIndex) proMode.SelectedIndex = boxesMode;
                     else proRefresh();
@@ -1965,6 +2022,20 @@ namespace RyGT
             }
             proMode.SelectedIndexChanged += delegate
             {
+                int picked = proMode.SelectedIndex;
+                // FEAT-GT7-180: the modes with the checkerboard (4K TV, Full) are refused while NVIDIA DLSS is the
+                // upscaling method. Custom keeps the boxes as they are, and the box has its own check.
+                if (!proReverting && (picked == 1 || picked == 3) && method.SelectedIndex == 3 && !proBoxes[0].Checked)
+                {
+                    MessageBox.Show(this, "This mode draws the 3200 x 1800 picture, which cannot be used with NVIDIA DLSS: the game " +
+                                          "already rebuilds that picture itself. Pick another upscaling method first.");
+                    proReverting = true;
+                    proMode.SelectedIndex = lastPro;
+                    proReverting = false;
+                    return;
+                }
+                lastPro = picked;
+                if (picked == 1 || picked == 3) proDropUnshownDlss();
                 try { WriteSetting("GPU", "ps4_pro_mode", proKeys[Math.Max(0, proMode.SelectedIndex)]); }
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
                 proApply();
@@ -2023,6 +2094,7 @@ namespace RyGT
                 // The launcher turns the label + list rows into SettingRows (Rowify), so the row on
                 // screen is the list's parent, not multRow.
                 (mult.Parent ?? multRow).Visible = fg.SelectedIndex == 2;
+                fgAdvice.Visible = fg.SelectedIndex == 2;
                 var missing = new List<string>();
                 if (!has("nvngx_dlss.dll")) missing.Add("nvngx_dlss.dll");
                 if (!has("sl.interposer.dll") || !has("sl.common.dll")) missing.Add("Streamline");
@@ -2035,6 +2107,7 @@ namespace RyGT
                     : "NVIDIA DLSS files: " + (has("nvngx_dlss.dll") ? "DLSS " + FileVersion(Path.Combine(dlssDir, "nvngx_dlss.dll")) : "no DLSS") +
                       ", " + (has("sl.interposer.dll") ? "Streamline " + FileVersion(Path.Combine(dlssDir, "sl.interposer.dll")) : "no Streamline") +
                       (missing.Count == 0 ? ". Ready." : ". Missing: " + string.Join(", ", missing) + ".");
+                proDlssRefresh(); // FEAT-GT7-180
             };
             Action load = delegate
             {
@@ -2056,6 +2129,16 @@ namespace RyGT
                     MessageBox.Show(this, method.SelectedIndex == 3
                         ? "DLSS needs NVIDIA's files. Use \"Download NVIDIA DLSS\" first (RTX cards only)."
                         : "FSR 3.1 needs amd_fidelityfx_vk.dll next to GT7.exe.");
+                    method.SelectedIndex = Math.Max(0, lastMethod);
+                    return;
+                }
+                // FEAT-GT7-180: not with the PS4 Pro 3200 x 1800 picture (unless a saved configuration already
+                // has both: lastMethod is then DLSS, and the warnings say so).
+                if (!loading && method.SelectedIndex == 3 && lastMethod != 3 && proBoxes[0].Checked)
+                {
+                    MessageBox.Show(this, "NVIDIA DLSS cannot be used with the PS4 Pro 3200 x 1800 picture: the game already rebuilds " +
+                                          "that picture itself. In PS4 Pro mode, pick \"PS4 (no Pro mode)\" or \"PS4 Pro, 1080p TV\" first, " +
+                                          "or untick the 3200 x 1800 box.");
                     method.SelectedIndex = Math.Max(0, lastMethod);
                     return;
                 }
@@ -2180,11 +2263,11 @@ namespace RyGT
                 worker.Start();
             };
             // Race frame rate (GPU.race_fps_lock, the game gets it as SHADGT_FPS_LOCK): an even 30
-            // by default; 60 when the PC keeps up. 60 is marked experimental: busy race sections
-            // stay well under it, and frames of 16.7, 33 and 50 ms mixed judder more than an even 30.
+            // by default; 60 when the PC keeps up. Busy race sections can stay under 60, and frames of
+            // 16.7, 33 and 50 ms mixed judder more than an even 30.
             var fpsRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 2), WrapContents = false };
             var fpsLock = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
-            fpsLock.Items.AddRange(new object[] { "30 fps (steady)", "60 fps (experimental)" });
+            fpsLock.Items.AddRange(new object[] { "30 fps (steady)", "60 fps" });
             fpsRow.Controls.Add(new Label { Text = "Race frame rate", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) });
             fpsRow.Controls.Add(fpsLock);
             graphics.Controls.Add(fpsRow);

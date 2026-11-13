@@ -6,6 +6,15 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.1.4 - 2026-11-14
+
+* FEAT-GT7-180: Graphics page. NVIDIA DLSS and the PS4 Pro 3200 x 1800 picture can no longer be turned on
+  together: the game rebuilds that picture itself, so picking one while the other is on is refused with a
+  message, and a configuration that already has both shows a warning in both sections. NVIDIA DLSS frame
+  generation shows a line saying it is not recommended for now (in our tests, on an RTX 4070, the game ran
+  smoother without it). The 60 fps race frame rate is no longer labelled experimental. The PS4 Pro mode
+  section loses its last paragraph (the test notes).
+
 ## 0.1.3 - 2026-11-13
 
 * FEAT-GT7-161: Photos the game's gallery exports (Export on a Scapes or race photo) are written as
