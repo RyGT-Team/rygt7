@@ -23,9 +23,11 @@ namespace RyGT
             public int Instance;
             public string Name;
             public bool IsWheel;
+            public bool Haptic;
             public int[] Axes = new int[0];
             public HashSet<int> Buttons = new HashSet<int>();
             public int[] Hats = new int[0];
+            public int[] Rest = new int[0];     // the axes' resting values; empty before the probe captures them
         }
 
         /// One mappable control: an analog action (JOYAXIS) or a pad button (JOYBUTTON / JOYHAT).
@@ -35,6 +37,7 @@ namespace RyGT
             public bool Analog;
             public string Source;        // "JOYAXIS:1", "JOYBUTTON:13", "JOYHAT:UP" or null
             public string DeviceName;    // null: the wheel
+            public string OwnedLine;     // the ini line this row loaded; null: no line
             public bool Invert;
         }
 
@@ -59,6 +62,10 @@ namespace RyGT
             new Row { Action = "R2", Label = "R2" },
             new Row { Action = "L3", Label = "L3" },
             new Row { Action = "R3", Label = "R3" },
+            new Row { Action = "RightStickUp", Label = "Right stick up" },
+            new Row { Action = "RightStickRight", Label = "Right stick right" },
+            new Row { Action = "RightStickDown", Label = "Right stick down" },
+            new Row { Action = "RightStickLeft", Label = "Right stick left" },
             new Row { Action = "TouchLeft", Label = "Touchpad (left)" },
         };
 
@@ -77,6 +84,25 @@ namespace RyGT
         /// Taken around everything that reads the devices (the probe writes them from its thread).
         public readonly object Gate = new object();
         Process probe;
+
+        /// The input file as this window loaded it; the rows' lines come back to their places in it
+        /// as long as the file is still ours (see Save).
+        List<string> originalLines = new List<string>();
+
+        /// What the last save wrote, to tell an untouched file from one that changed under us.
+        List<string> lastWritten;
+
+        /// Whether the original layout still counts; an external edit to the file turns it off for
+        /// the rest of the session and Save settles for touching only the lines it recognizes.
+        bool positionStable = true;
+
+        /// Rows whose lines this window removed from the file (so mapping them again appends them back).
+        readonly HashSet<Row> linesRemoved = new HashSet<Row>();
+
+        /// The tail block the last conservative save wrote (a blank line, the marker, the rows' lines);
+        /// the next save takes it back and rewrites it whole, so the block stays one tidy group no
+        /// matter how many saves add or drop rows.
+        List<string> appendBlock = new List<string>();
 
         // Detection: the row being detected, the state when it started, and when it gives up.
         Row detecting;
@@ -148,7 +174,7 @@ namespace RyGT
 
         void OnProbeLine(string line)
         {
-            var parts = line.Split(new[] { ' ' }, 9);
+            var parts = line.Split(new[] { ' ' }, 10);
             lock (Gate)
             {
                 if (parts[0] == "devices")
@@ -158,11 +184,13 @@ namespace RyGT
                 }
                 else if (parts[0] == "device" && parts.Length >= 9)
                 {
+                    // The new probe adds a haptic field (parts[5]); an old probe exe sends 9 fields.
                     var device = new Device
                     {
                         Instance = int.Parse(parts[1], CultureInfo.InvariantCulture),
                         IsWheel = parts[4] == "1",
-                        Name = parts[8]
+                        Haptic = parts.Length >= 10 && parts[5] == "1",
+                        Name = parts[parts.Length - 1]
                     };
                     devices[device.Instance] = device;
                     deviceOrder.Add(device.Instance);
@@ -174,18 +202,40 @@ namespace RyGT
                     device.Axes = parts[2] == "-" ? new int[0] : parts[2].Split(',').Select(v => int.Parse(v, CultureInfo.InvariantCulture)).ToArray();
                     device.Buttons = parts[3] == "-" ? new HashSet<int>() : new HashSet<int>(parts[3].Split(',').Select(v => int.Parse(v, CultureInfo.InvariantCulture)));
                     device.Hats = parts[4] == "-" ? new int[0] : parts[4].Split(',').Select(v => int.Parse(v, CultureInfo.InvariantCulture)).ToArray();
+                    // The new probe appends the axes' resting values (parts[5]); an old probe sends five fields.
+                    device.Rest = parts.Length >= 6 && parts[5] != "-" ? parts[5].Split(',').Select(v => int.Parse(v, CultureInfo.InvariantCulture)).ToArray() : new int[0];
                 }
             }
         }
 
-        /// The devices the probe found (take Gate).
-        public List<Device> Devices { get { return deviceOrder.Select(id => devices[id]).ToList(); } }
+        // Preference rank for listing and name resolution, WheelInput::primary's order: a haptic
+        // wheel first, then other wheels, then devices with axes, then the rest.
+        static int Rank(Device d)
+        {
+            if (d.IsWheel && d.Haptic) return 0;
+            if (d.IsWheel) return 1;
+            if (d.Axes.Length > 0) return 2;
+            return 3;
+        }
 
-        /// The device libScePad uses when a line names none: the first wheel, else the first device with axes.
+        // deviceOrder with the haptic wheel first, probe order kept within a rank (take Gate).
+        List<int> PriorityOrder()
+        {
+            return deviceOrder.Select((id, i) => new { id, i, rank = Rank(devices[id]) })
+                .OrderBy(x => x.rank).ThenBy(x => x.i).Select(x => x.id).ToList();
+        }
+
+        /// The devices the probe found, the haptic wheel first (take Gate).
+        public List<Device> Devices { get { return PriorityOrder().Select(id => devices[id]).ToList(); } }
+
+        /// The device libScePad uses when a line names none: the first wheel that opens a haptic
+        /// device (WheelInput::primary's order), else the first wheel, else the first device with axes.
         public Device Primary()
         {
-            foreach (var id in deviceOrder) if (devices[id].IsWheel) return devices[id];
-            foreach (var id in deviceOrder) if (devices[id].Axes.Length > 0) return devices[id];
+            var order = PriorityOrder();
+            foreach (var id in order) if (devices[id].IsWheel && devices[id].Haptic) return devices[id];
+            foreach (var id in order) if (devices[id].IsWheel) return devices[id];
+            foreach (var id in order) if (devices[id].Axes.Length > 0) return devices[id];
             return null;
         }
 
@@ -193,11 +243,13 @@ namespace RyGT
         {
             if (row.DeviceName == null) return Primary();
             var wanted = row.DeviceName.ToLowerInvariant();
-            foreach (var id in deviceOrder) if (devices[id].Name.ToLowerInvariant().Contains(wanted)) return devices[id];
+            foreach (var id in PriorityOrder()) if (devices[id].Name.ToLowerInvariant().Contains(wanted)) return devices[id];
             return null;
         }
 
-        /// A row's live value, 0 to 1000 (take Gate).
+        /// A row's live value, 0 to 1000 (take Gate). A direction bound to an axis shows what the
+        /// game sees of it: a d-pad direction lights once its travel from rest passes a third of
+        /// the range (WheelInput's threshold), and a stick direction lights with its deflection.
         public int Live(Row row)
         {
             int value = 0;
@@ -208,8 +260,23 @@ namespace RyGT
                 int index;
                 if (parts[0] == "JOYAXIS" && int.TryParse(parts[1], out index) && index < device.Axes.Length)
                 {
-                    value = (device.Axes[index] + 32768) * 1000 / 65535;
-                    if (row.Invert) value = 1000 - value;
+                    int travel = device.Axes[index] - (index < device.Rest.Length ? device.Rest[index] : 0);
+                    if (row.Invert) travel = -travel;
+                    if (IsDpadDirection(row.Action))
+                    {
+                        value = travel > 10000 ? 1000 : 0;
+                    }
+                    else if (IsStickDirection(row.Action))
+                    {
+                        // The row names one end of the stick axis; travel towards the other reads as negative.
+                        int deflection = row.Action == "RightStickRight" || row.Action == "RightStickDown" ? travel : -travel;
+                        value = Math.Max(0, Math.Min(32767, deflection)) * 1000 / 32767;
+                    }
+                    else
+                    {
+                        value = (device.Axes[index] + 32768) * 1000 / 65535;
+                        if (row.Invert) value = 1000 - value;
+                    }
                 }
                 else if (parts[0] == "JOYBUTTON" && int.TryParse(parts[1], out index))
                 {
@@ -223,13 +290,25 @@ namespace RyGT
             return Math.Max(0, Math.Min(1000, value));
         }
 
-        /// What the probe reads right now, one line per device (take Gate).
+        /// A d-pad direction, which an axis drives past a threshold (the consumer's JOYAXIS rule).
+        static bool IsDpadDirection(string action)
+        {
+            return action == "Up" || action == "Down" || action == "Left" || action == "Right";
+        }
+
+        /// A stick direction, which an axis drives proportionally across the whole range.
+        static bool IsStickDirection(string action)
+        {
+            return action == "RightStickUp" || action == "RightStickDown" || action == "RightStickLeft" || action == "RightStickRight";
+        }
+
+        /// What the probe reads right now, one line per device, the haptic wheel first (take Gate).
         public string RawInput()
         {
-            return string.Join(Environment.NewLine, deviceOrder.Select(id =>
+            return string.Join(Environment.NewLine, PriorityOrder().Select(id =>
             {
                 var d = devices[id];
-                return d.Name + ": axes " + string.Join(" ", d.Axes.Select((v, i) => i + ":" + (v * 100 / 32768).ToString(CultureInfo.InvariantCulture) + "%")) +
+                return d.Name + (d.Haptic ? " (haptic)" : "") + ": axes " + string.Join(" ", d.Axes.Select((v, i) => i + ":" + (v * 100 / 32768).ToString(CultureInfo.InvariantCulture) + "%")) +
                        "   buttons " + (d.Buttons.Count == 0 ? "none" : string.Join(",", d.Buttons.OrderBy(b => b))) +
                        (d.Hats.Length > 0 && d.Hats[0] != 0 ? "   hat " + d.Hats[0] : "");
             }).ToArray());
@@ -257,7 +336,7 @@ namespace RyGT
                 detectUntil = DateTime.Now.AddSeconds(10);
                 Status = row.Analog
                     ? "Now " + (row.Action == "Steering" ? "turn the wheel well to the right" : "press the " + row.Label.ToLowerInvariant() + " all the way") + "."
-                    : "Now press the button for " + row.Label + ".";
+                    : "Now press the button, move the stick or press the hat for " + row.Label + ".";
             }
         }
 
@@ -307,6 +386,22 @@ namespace RyGT
                         Assign(device, "JOYBUTTON:" + button);
                         return true;
                     }
+                    // A d-pad or stick direction can also be an axis; the consumer rejects an axis
+                    // on any other row, so button rows keep looking for buttons and hats only.
+                    if (IsDpadDirection(detecting.Action) || IsStickDirection(detecting.Action))
+                    {
+                        for (int axis = 0; axis < Math.Min(start.Length, device.Axes.Length); ++axis)
+                        {
+                            if (device == Primary() && axis == 0) continue;   // the steering wheel axis
+                            if (Math.Abs(start[axis]) > 30000) continue;       // a pedal: rests at a range end
+                            int moved = device.Axes[axis] - start[axis];
+                            if (Math.Abs(moved) < 20000) continue;
+                            var row = detecting;
+                            Assign(device, "JOYAXIS:" + axis);
+                            row.Invert = moved < 0;   // Assign clears it; the direction's row names one end of the axis
+                            return true;
+                        }
+                    }
                     var hats = baseHats[id];
                     for (int hat = 0; hat < Math.Min(1, device.Hats.Length); ++hat)
                     {
@@ -330,7 +425,7 @@ namespace RyGT
             row.Source = source;
             var primary = Primary();
             row.DeviceName = primary != null && primary.Instance == device.Instance ? null : device.Name;
-            if (row.Analog) row.Invert = false;
+            row.Invert = false;
             Status = row.Label + ": " + Describe(row) + ".";
         }
 
@@ -351,6 +446,7 @@ namespace RyGT
         {
             if (row.Source == null) return "(not mapped)";
             var text = Short(row);
+            if (row.Invert && row.Source.StartsWith("JOYAXIS")) text += " (inverted)";
             if (row.DeviceName != null) text += " on " + row.DeviceName;
             return text;
         }
@@ -388,9 +484,11 @@ namespace RyGT
 
         void Load()
         {
-            if (File.Exists(inputPath))
+            var lines = File.Exists(inputPath) ? File.ReadAllLines(inputPath).ToList() : new List<string>();
+            originalLines = lines;
+            if (lines.Count > 0)
             {
-                foreach (var line in File.ReadAllLines(inputPath))
+                foreach (var line in lines)
                 {
                     string source;
                     var action = ActionOf(line, out source);
@@ -404,6 +502,7 @@ namespace RyGT
                     row.Source = parts[0].Trim().ToUpperInvariant() + ":" + parts[1].Trim().ToUpperInvariant();
                     row.Invert = parts.Length > 2 && parts[2].Trim().ToUpperInvariant() == "INVERT";
                     row.DeviceName = device;
+                    row.OwnedLine = line;
                 }
             }
             var settings = ReadWheelSettings();
@@ -436,33 +535,140 @@ namespace RyGT
             return result;
         }
 
+        /// The ini line a row's current state writes as.
+        static string LineOf(Row row)
+        {
+            var line = row.Action + " = " + row.Source;
+            if (row.Invert && row.Source.StartsWith("JOYAXIS")) line += ":INVERT";
+            if (row.DeviceName != null) line += " @ " + row.DeviceName;
+            return line;
+        }
+
         public void Save()
         {
-            // ryty-input.ini: every non-joystick line stays; the wheel lines are written again.
-            var kept = new List<string>();
-            if (File.Exists(inputPath))
+            // ryty-input.ini. While the file is still ours, the rows' lines keep their original
+            // places: a cleared row is dropped, a re-mapped one comes back in its spot, rows that
+            // never had a line collect in one tail block, and every other line - unknown actions,
+            // extra bindings for the same action - stays as it is. If the file changed under us,
+            // we settle for touching only the lines we recognize, and stay there for the session.
+            var inputLines = File.Exists(inputPath) ? File.ReadAllLines(inputPath).ToList() : new List<string>();
+            if (positionStable && inputLines.SequenceEqual(lastWritten ?? originalLines))
             {
-                foreach (var line in File.ReadAllLines(inputPath))
+                var kept = new List<string>();
+                var placed = new HashSet<Row>();
+                foreach (var line in originalLines)
                 {
                     string source;
-                    ActionOf(line, out source);
-                    if (IsJoystickSource(source)) continue;
-                    if (line.Trim() == "# Racing wheel (written by the RyGT launcher)") continue;
-                    kept.Add(line);
+                    var action = ActionOf(line, out source);
+                    var row = action == null ? null : Rows.FirstOrDefault(r => string.Equals(r.Action, action, StringComparison.OrdinalIgnoreCase));
+                    if (row != null && line == row.OwnedLine)
+                    {
+                        placed.Add(row);
+                        if (row.Source != null) kept.Add(LineOf(row));   // a cleared row drops its line
+                    }
+                    else kept.Add(line);
+                }
+                var added = new List<string>();
+                foreach (var row in Rows)
+                {
+                    if (row.Source != null && !placed.Contains(row)) added.Add(LineOf(row));
+                }
+                if (added.Count > 0)
+                {
+                    while (kept.Count > 0 && kept[kept.Count - 1].Trim().Length == 0) kept.RemoveAt(kept.Count - 1);
+                    if (kept.Count > 0) kept.Add("");
+                    kept.Add("# Racing wheel (written by the RyGT launcher)");
+                    kept.AddRange(added);
+                }
+                lastWritten = kept;
+                File.WriteAllLines(inputPath, kept, new UTF8Encoding(false));
+            }
+            else
+            {
+                positionStable = false;
+                // Conservative: the file changed under us. Rewrite only the lines we recognize, never
+                // add a line for an action the file already has, and keep the tail block tidy.
+                // Take back the tail block the last conservative save wrote (still at the end,
+                // possibly followed by a trailing blank) so it can be rewritten whole.
+                if (appendBlock.Count > 0)
+            {
+                int skip = 0;
+                while (skip < inputLines.Count && inputLines[inputLines.Count - 1 - skip].Trim().Length == 0) ++skip;
+                int start = inputLines.Count - skip - appendBlock.Count;
+                if (start >= 0 && inputLines.GetRange(start, appendBlock.Count).SequenceEqual(appendBlock))
+                {
+                    foreach (var line in appendBlock)
+                    {
+                        var row = Rows.FirstOrDefault(r => r.OwnedLine == line);
+                        if (row != null) linesRemoved.Add(row);
+                    }
+                    inputLines.RemoveRange(start, appendBlock.Count + skip);
                 }
             }
-            while (kept.Count > 0 && kept[kept.Count - 1].Trim().Length == 0) kept.RemoveAt(kept.Count - 1);
-            if (kept.Count > 0) kept.Add("");
-            kept.Add("# Racing wheel (written by the RyGT launcher)");
+            var owned = new HashSet<Row>();
+            for (int i = 0; i < inputLines.Count; ++i)
+            {
+                string source;
+                var action = ActionOf(inputLines[i], out source);
+                var row = action == null ? null : Rows.FirstOrDefault(r => string.Equals(r.Action, action, StringComparison.OrdinalIgnoreCase));
+                if (row != null && row.OwnedLine != null && !owned.Contains(row) && inputLines[i] == row.OwnedLine)
+                {
+                    owned.Add(row);
+                    if (row.Source == null)
+                    {
+                        inputLines.RemoveAt(i);
+                        linesRemoved.Add(row);
+                    }
+                    else
+                    {
+                        inputLines[i] = LineOf(row);
+                        row.OwnedLine = inputLines[i];   // remember the new line for the next save
+                        linesRemoved.Remove(row);
+                    }
+                }
+            }
+            // Actions that already have a line in the file (for rows that never had one of their own:
+            // a line added by hand after the window opened is kept, not duplicated).
+            var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in inputLines)
+            {
+                string source;
+                var action = ActionOf(line, out source);
+                if (action != null) present.Add(action);
+            }
+            var toAppend = new List<Row>();
             foreach (var row in Rows)
             {
-                if (row.Source == null) continue;
-                var line = row.Action + " = " + row.Source;
-                if (row.Analog && row.Invert) line += ":INVERT";
-                if (row.DeviceName != null) line += " @ " + row.DeviceName;
-                kept.Add(line);
+                // A row appends a line only if it never had one (newly mapped) or this window removed
+                // its line (cleared, then mapped again). If its line is missing for any other reason,
+                // the file changed under us (edited externally, or this window loaded an older
+                // version of it) - the line that is there stays, and no second line is added.
+                if (row.Source == null || owned.Contains(row)) continue;
+                if (row.OwnedLine != null && !linesRemoved.Contains(row)) continue;
+                if (row.OwnedLine == null && present.Contains(row.Action)) continue;
+                toAppend.Add(row);
             }
-            File.WriteAllLines(inputPath, kept, new UTF8Encoding(false));
+            // The new tail block: a blank line, the marker, the lines. Rebuilt whole, so the file
+            // never accumulates blank lines or markers between saves.
+            var block = new List<string>();
+            if (toAppend.Count > 0)
+            {
+                while (inputLines.Count > 0 && inputLines[inputLines.Count - 1].Trim().Length == 0) inputLines.RemoveAt(inputLines.Count - 1);
+                if (inputLines.Count > 0) block.Add("");
+                block.Add("# Racing wheel (written by the RyGT launcher)");
+                foreach (var row in toAppend)
+                {
+                    var line = LineOf(row);
+                    block.Add(line);
+                    row.OwnedLine = line;   // the next save finds it here
+                    linesRemoved.Remove(row);
+                }
+            }
+                appendBlock = block;
+                inputLines.AddRange(block);
+                lastWritten = inputLines;
+                File.WriteAllLines(inputPath, inputLines, new UTF8Encoding(false));
+            }
 
             // ryty-wheel.ini: the settings edited here are replaced in place; others stay.
             var values = new Dictionary<string, string>

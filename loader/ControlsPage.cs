@@ -467,6 +467,8 @@ namespace RyGT
             public GraphicsPath Shape;
             public bool Group;            // turns with the wheel
             public PointF Chip, Anchor;   // the label's centre and where its line points; no label: Chip empty
+            public bool ChipPicking = true;   // whether the label is clickable; a group label is not
+            public List<string> ChipFor;   // the targets the label lights up for; empty: the part's own target
             public RectangleF ChipRect;   // as last drawn
             public string Label;          // as last drawn
         }
@@ -539,7 +541,7 @@ namespace RyGT
         {
             var p = ToDesign(point);
             foreach (var part in parts)
-                if (!part.ChipRect.IsEmpty && part.ChipRect.Contains(p)) return part.Target;
+                if (part.ChipPicking && !part.ChipRect.IsEmpty && part.ChipRect.Contains(p)) return part.Target;
             for (int i = parts.Count - 1; i >= 0; --i)
             {
                 var part = parts[i];
@@ -642,7 +644,8 @@ namespace RyGT
             var size = g.MeasureString(text, ChipFont);
             float w = Math.Max(26, size.Width + 14), h = 22;
             var r = new RectangleF(part.Chip.X - w / 2, part.Chip.Y - h / 2, w, h);
-            bool on = part.Target == Selected, over = part.Target == hover;
+            bool on = part.ChipFor == null ? part.Target == Selected : part.ChipFor.Contains(Selected);
+            bool over = part.ChipFor == null ? part.Target == hover : part.ChipFor.Contains(hover);
             // The line from the label to the part, starting at the label's nearest edge.
             var from = new PointF(Math.Max(r.Left, Math.Min(r.Right, part.Anchor.X)), Math.Max(r.Top, Math.Min(r.Bottom, part.Anchor.Y)));
             using (var line = new Pen(on ? SelectColor : Color.FromArgb(78, 84, 96), 1f)) g.DrawLine(line, from, part.Anchor);
@@ -851,12 +854,20 @@ namespace RyGT
             Add("L3", Circle(C.X - 15, C.Y + 66, 8), true);
             Add("R3", Circle(C.X + 15, C.Y + 66, 8), true);
             Add("TouchLeft", Rect(C.X - 17, C.Y + 86, 34, 16, 6), true);
+            // The right stick, bottom left of the wheel.
+            Add("RightStickUp", Rect(143, 386, 14, 22, 3));
+            Add("RightStickRight", Rect(164, 413, 22, 14, 3));
+            Add("RightStickDown", Rect(143, 414, 14, 22, 3));
+            var stick = Add("RightStickLeft", Rect(114, 413, 22, 14, 3));
+            stick.Chip = new PointF(48, 411); stick.Anchor = new PointF(106, 411);   // the group's label
+            stick.ChipPicking = false;   // clicking the label does not pick the arm it hangs from
+            stick.ChipFor = new List<string> { "RightStickUp", "RightStickRight", "RightStickDown", "RightStickLeft" };
             for (int i = 0; i < 3; ++i) Add(Pedals[i], Rect(PedalX[i] - 20, 232, 40, 120, 9));
         }
 
         public float WheelAngle { get { return Angle; } set { if (Math.Abs(value - Angle) > 0.05f) { Angle = value; Invalidate(); } } }
 
-        protected override string LabelOf(string target) { return Label(target); }
+        protected override string LabelOf(string target) { return target == "RightStickLeft" ? "Right stick" : Label(target); }
         protected override float LiveOf(string target) { return Pedals.Contains(target) || target == "Steering" ? 0 : Live(target); }
         protected override bool Dim(string target) { return !Mapped(target); }
 
@@ -866,6 +877,11 @@ namespace RyGT
             using (var fill = new LinearGradientBrush(new RectangleF(510, 210, 180, 190), Color.FromArgb(44, 46, 53), Color.FromArgb(26, 28, 33), 90f))
             using (var path = Rect(512, 214, 176, 160, 14))
                 g.FillPath(fill, path);
+            // The right stick's frame, around its four directions.
+            using (var pen = new Pen(Color.FromArgb(84, 88, 100), 1.2f))
+                g.DrawPath(pen, Dark.RoundedRect(new RectangleF(106, 378, 88, 66), 10));
+            // The right stick's centre, between its four arms.
+            using (var dot = new SolidBrush(Color.FromArgb(44, 46, 54))) g.FillEllipse(dot, 143, 413, 14, 14);
         }
 
         protected override void PaintGroupUnder(Graphics g)
@@ -1367,7 +1383,8 @@ namespace RyGT
                 slot.Value.Text = row != null ? Wheel.Describe(row) : "";
                 slot.Visible = true;
                 slot.PerformLayout();
-                invert.Visible = row != null && row.Analog;
+                // The invert is offered in any row that carries an axis (analog, d-pad or stick).
+                invert.Visible = row != null && row.Source != null && row.Source.StartsWith("JOYAXIS");
                 invert.Checked = row != null && row.Invert;
                 rebind.Text = "Detect";
                 reset.Text = "Clear";
@@ -1510,6 +1527,8 @@ namespace RyGT
             if (Tab == 2)
             {
                 var row = wheel.RowOf(wheelTarget);
+                // OwnedLine stays: the save removes the row's line (or rewrites it in place if the row
+                // is re-mapped before saving).
                 if (row != null) { row.Source = null; row.DeviceName = null; row.Invert = false; }
                 SaveWheel();
             }
