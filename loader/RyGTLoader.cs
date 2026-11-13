@@ -1642,7 +1642,7 @@ namespace RyGT
             {
                 Dock = DockStyle.Fill, Logo = logoImage, Title = "GRAN TURISMO", Accent = "7",
                 Caption = Dark.Spaced("CUSA24769   " + (char)183 + "   PS4   " + (char)183 + "   RYGT7 FOR WINDOWS"),
-                Version = "ryGT7 " + (Updater.InstalledVersion(root) ?? "") + "  " + (char)183 + "  launcher " + LauncherVersion.Value +
+                Version = "ryGT7 " + Updater.Display(Updater.InstalledVersion(root)) + "  " + (char)183 + "  launcher " + LauncherVersion.Value +
                     "  " + (char)183 + "  GT7 " + (char)183 + " CUSA24769"
             };
             // The updater: a newer release shows a notice and an Update button at the top right.
@@ -3018,33 +3018,56 @@ namespace RyGT
             panel.Controls.Add(row);
         }
 
-        /// Asks GitLab for the newest release in the background; never holds up Play.
+        /// FEAT-GTS-257: the update channel (Launcher.update_channel): stable (the newest release), prerelease
+        /// (the newest release or pre-release) or nightly (the newest build of main). Stable by default.
+        string UpdateChannel()
+        {
+            try
+            {
+                object section, value;
+                var launcher = LoadConfig().TryGetValue("Launcher", out section) ? section as Dictionary<string, object> : null;
+                string channel = launcher != null && launcher.TryGetValue("update_channel", out value) ? value as string : null;
+                return Array.IndexOf(Updater.Channels, channel) >= 0 ? channel : Updater.Stable;
+            }
+            catch { return Updater.Stable; }
+        }
+
+        static string ChannelName(string channel)
+        {
+            return channel == Updater.Nightly ? "nightly" : channel == Updater.Prerelease ? "release or prerelease" : "stable release";
+        }
+
+        /// Asks GitHub for the newest build on the update channel in the background; never holds up Play.
         void CheckForUpdate(bool manual)
         {
             string installed = Updater.InstalledVersion(root);
             if (installed == null)
             {
-                if (manual) MessageBox.Show(this, "This launcher didn't come from a release package (it has no manifest.json), so it can't update itself.");
+                if (manual) MessageBox.Show(this, "This launcher didn't come from a ryGT7 package (it has no manifest.json or BUILD_INFO.txt), so it can't update itself.");
                 return;
             }
+            string channel = UpdateChannel();
             ThreadPool.QueueUserWorkItem(delegate
             {
                 ReleaseInfo latest = null;
                 Exception error = null;
-                try { latest = Updater.Latest(); }
+                try { latest = Updater.Latest(channel); }
                 catch (Exception e) { error = e; }
-                try { BeginInvoke((Action)delegate { ShowUpdate(installed, latest, error, manual); }); }
+                try { BeginInvoke((Action)delegate { ShowUpdate(installed, channel, latest, error, manual); }); }
                 catch (InvalidOperationException) { } // closed meanwhile
             });
         }
 
-        void ShowUpdate(string installed, ReleaseInfo latest, Exception error, bool manual)
+        void ShowUpdate(string installed, string channel, ReleaseInfo latest, Exception error, bool manual)
         {
+            if (channel != UpdateChannel()) return; // the channel changed meanwhile; that check shows its own
             if (latest != null && Updater.IsNewer(latest.Version, installed))
             {
                 pendingUpdate = latest;
-                home.Notice = "ryGT7 " + latest.Version + " is available (you have " + installed + ")." + Environment.NewLine + latest.Summary(240);
-                updateButton.Text = "Update to " + latest.Version;
+                home.Notice = (latest.Artifact ? "A newer ryGT7 nightly is available: " + Updater.Display(latest.Version)
+                                               : "ryGT7 " + latest.Version + (latest.Prerelease ? " (prerelease)" : "") + " is available") +
+                              " (you have " + Updater.Display(installed) + ")." + Environment.NewLine + latest.Summary(240);
+                updateButton.Text = "Update to " + Updater.Display(latest.Version);
                 updateButton.Visible = true;
                 home.PerformLayout();
                 home.Invalidate(true);
@@ -3052,19 +3075,33 @@ namespace RyGT
             else if (manual)
             {
                 MessageBox.Show(this, error != null ? "Could not check for updates: " + error.Message
-                                                    : "ryGT7 " + installed + " is the newest release.");
+                                    : latest == null && channel == Updater.Nightly ? "No nightly to update to was found (nightlies are kept for 7 days)."
+                                    : latest == null ? "No ryGT7 " + ChannelName(channel) + " was found on GitHub."
+                                    : "ryGT7 " + Updater.Display(installed) + " is the newest " + ChannelName(channel) + ".");
             }
         }
 
-        /// Downloads and installs the pending release, then restarts the launcher.
+        void ClearUpdate()
+        {
+            pendingUpdate = null;
+            home.Notice = "";
+            updateButton.Visible = false;
+            home.PerformLayout();
+            home.Invalidate(true);
+        }
+
+        /// Downloads and installs the pending update, then restarts the launcher.
         void InstallUpdate()
         {
             var release = pendingUpdate;
             if (release == null || busy) return;
-            if (MessageBox.Show(this, "Update ryGT7 to " + release.Version + "?" + Environment.NewLine + Environment.NewLine +
-                                "The launcher downloads " + release.ZipName + ", checks it, replaces its own program files and restarts. " +
-                                "Your game, saves, settings and shader caches stay as they are. The old files are kept, so you can " +
-                                "roll back from Settings > Display.", "Update ryGT7", MessageBoxButtons.OKCancel) != DialogResult.OK)
+            if (MessageBox.Show(this, "Update ryGT7 to " + Updater.Display(release.Version) + (release.Prerelease ? " (prerelease)" : "") + "?" +
+                                Environment.NewLine + Environment.NewLine +
+                                "The launcher downloads " + release.ZipName +
+                                (release.Artifact ? " (through nightly.link, as GitHub's own download needs an account)" : "") +
+                                ", checks it, replaces its own program files and restarts. Your game, saves, settings, profiles and shader " +
+                                "caches stay as they are. The old files are kept, so you can roll back from Settings > Display.", "Update ryGT7",
+                                MessageBoxButtons.OKCancel) != DialogResult.OK)
                 return;
             busy = true;
             updateButton.Enabled = false;
@@ -3095,27 +3132,42 @@ namespace RyGT
             });
         }
 
-        // Launcher updates: the check at start, a check now, and a roll back of the last update.
+        /// Launcher updates: the check at start, the channel, a check now, and a roll back of the last update.
         void AddUpdateSettings(TableLayoutPanel panel)
         {
-            // The question asked in the settings: whether the launcher looks for a newer release at start.
-            AddOption(panel, "Check for updates", "Launcher", "check_updates", true);
+            AddOption(panel, "Check for updates at start", "Launcher", "check_updates", true);
+            var channelRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 2), WrapContents = false };
+            var channelLabel = new Label { Text = "Update channel", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
+            var channelBox = new DarkComboBox { Width = 230, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat };
+            channelBox.Items.AddRange(new object[] { "Stable", "Prerelease", "Nightly" });
+            channelBox.SelectedIndex = Array.IndexOf(Updater.Channels, UpdateChannel());
+            channelBox.SelectedIndexChanged += delegate
+            {
+                try { WriteSetting("Launcher", "update_channel", Updater.Channels[channelBox.SelectedIndex]); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); return; }
+                // What was found on the old channel no longer applies.
+                ClearUpdate();
+                if (ReadSetting("Launcher", "check_updates", true)) CheckForUpdate(false);
+            };
+            channelRow.Controls.Add(channelLabel);
+            channelRow.Controls.Add(channelBox);
+            panel.Controls.Add(channelRow);
             var row = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 2), WrapContents = false };
+            string installed = Updater.InstalledVersion(root);
             var label = new Label
             {
-                Text = "Launcher " + LauncherVersion.Value + (Updater.InstalledVersion(root) == null ? "" : " (" + Updater.InstalledVersion(root) + ")"),
-                AutoSize = false, Width = 196, Height = 20,
-                BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0)
+                Text = "Launcher " + LauncherVersion.Value + (installed == null ? "" : " (" + Updater.Display(installed) + ")"),
+                AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0)
             };
             var check = new Button { Text = "Check now", AutoSize = true, Margin = new Padding(0, 0, 6, 0) };
             check.Click += delegate { CheckForUpdate(true); };
             var last = Updater.LastUpdate(root);
-            var rollBack = new Button { Text = last == null ? "Roll back" : "Roll back to " + last.Item2, AutoSize = true, Enabled = last != null, Margin = new Padding(0) };
+            var rollBack = new Button { Text = last == null ? "Roll back" : "Roll back to " + Updater.Display(last.Item2), AutoSize = true, Enabled = last != null, Margin = new Padding(0) };
             rollBack.Click += delegate
             {
                 if (busy) return;
-                if (MessageBox.Show(this, "Put back ryGT7 " + last.Item2 + " (as before the update to " + last.Item3 + ") and restart the launcher?",
-                                    "Roll back", MessageBoxButtons.OKCancel) != DialogResult.OK)
+                if (MessageBox.Show(this, "Put back ryGT7 " + Updater.Display(last.Item2) + " (as before the update to " + Updater.Display(last.Item3) +
+                                    ") and restart the launcher?", "Roll back", MessageBoxButtons.OKCancel) != DialogResult.OK)
                     return;
                 try { Updater.RollBack(root); Updater.Restart(root); }
                 catch (Exception e) { MessageBox.Show(this, "Could not roll back: " + e.Message); }
@@ -3124,6 +3176,9 @@ namespace RyGT
             row.Controls.Add(check);
             row.Controls.Add(rollBack);
             panel.Controls.Add(row);
+            panel.Controls.Add(Hint("Stable is the newest release on GitHub, Prerelease the newest release or prerelease, and Nightly " +
+                                    "the newest build of main (downloaded through nightly.link; nightlies are kept for 7 days). " +
+                                    "No GitHub account is needed. Your game, saves, settings and caches are never touched."));
         }
 
         CheckBox AddOption(TableLayoutPanel panel, string text, string sectionName, string key, bool fallback)

@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// The launcher's updater: finds a newer ryGT7 release on GitLab and installs its program files over
-// this folder, keeping a backup to roll back to. User data is never written.
+// FEAT-GTS-257: the launcher's updater. Three channels: Stable (the newest GitHub release), Prerelease
+// (the newest GitHub release, pre-releases included) and Nightly (the newest successful CI build,
+// downloaded through nightly.link because GitHub's own artifact download needs a signed-in
+// account). It checks the package and installs its program files over this folder, keeping a
+// backup to roll back to. User data is never written. The same file is in RyGTS and ryGT7; only the
+// settings block below differs.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -14,10 +18,16 @@ using System.Web.Script.Serialization;
 
 namespace RyGT
 {
-    /// A release on GitLab: its version (the tag without "gt7-"), notes and the package zip.
+    /// A build the launcher can update to.
     class ReleaseInfo
     {
+        /// "2026-11-10" for a release, "ci-1a2b3c4d" for a nightly.
         public string Version, Tag, Name, Notes, ZipName, ZipUrl, Sha256;
+        /// A nightly: the download is a GitHub Actions artifact (a zip holding the package zip and
+        /// its .sha256), which also gives the checksum.
+        public bool Artifact;
+        /// A GitHub pre-release.
+        public bool Prerelease;
 
         /// The first lines of the notes' "What's new" (or of the notes), for the home view.
         public string Summary(int maxLength)
@@ -34,81 +44,204 @@ namespace RyGT
 
     static class Updater
     {
-        // rygt-team/rygt7 (project 88084032): its releases and their package files can be read
-        // without signing in. By number: .NET Framework turns an escaped "%2F" back into "/".
-        const string ReleasesUrl = "https://gitlab.com/api/v4/projects/88084032/releases?per_page=5";
+        // ---- This launcher (the rest of the file is the same in RyGTS and ryGT7).
+        const string Repository = "RyGT-Team/rygt7", Workflow = "rygt7-ci.yml", Branch = "main";
+        const string ArtifactPrefix = "rygt7-ci-", NightlyPrefix = "RyGT7-ci-", PackagePrefix = "RyGT7-", TagPrefix = "gt7-";
+        const string Product = "RyGT7", LauncherExe = "RyGT7.exe", GameProcess = "GT7";
+        static readonly string[] ProtectedFiles = { "RyGT7.ini", "RyGT.ini", "GT7.exe", "GT7.exe.converted", "GT7.registry.json", "setup-out.txt" };
+        // ----
+
+        public const string Stable = "stable", Prerelease = "prerelease", Nightly = "nightly";
+        public static readonly string[] Channels = { Stable, Prerelease, Nightly };
 
         // Folders and files that hold the player's data or the converted game: an update never
         // writes, moves or deletes anything under them, whatever a package lists.
         static readonly string[] ProtectedFolders = { "user", "shaders", "app0", "sys", "_sd", "convert", "data", "logs", "temp",
-                                                       "temp0", "download0", "decals", "update", "dlss", "Photos" };
-        static readonly string[] ProtectedFiles = { "RyGT7.ini", "RyGT.ini", "GT7.exe", "GT7.exe.converted", "GT7.registry.json", "setup-out.txt" };
+                                                       "temp0", "download0", "update", "dlss", "Photos", "screenshots", "decals",
+                                                       "launcher\\profiles" };
+        // Written last, so a failed update still reports the old version.
+        static readonly string[] VersionFiles = { "BUILD_INFO.txt", "BUILD_INFO.json", "manifest.json", "SHA256SUMS.txt" };
 
         public static string UpdateFolder(string root) { return Path.Combine(root, "update"); }
 
-        /// The installed package's version, from manifest.json's name ("RyGT7-2026-10-30-prerelease"),
-        /// or null (a build that didn't come from a release package).
+        /// The installed version: the version this updater installed (update\installed.json), while
+        /// the installed build is still the one it recorded (a release can be a nightly repackaged,
+        /// whose manifest still says "RyGT7-ci-..."); else a package's manifest.json name
+        /// ("RyGT7-2026-11-10", "RyGT7-ci-1a2b3c4d"), or BUILD_INFO.txt's commit as a nightly. Null
+        /// for a build that didn't come from a package.
         public static string InstalledVersion(string root)
         {
             try
             {
-                string path = Path.Combine(root, "manifest.json");
-                if (!File.Exists(path)) return null;
-                var manifest = new JavaScriptSerializer().DeserializeObject(File.ReadAllText(path)) as Dictionary<string, object>;
-                object name;
-                if (manifest == null || !manifest.TryGetValue("name", out name)) return null;
-                var match = Regex.Match(name as string ?? "", @"^RyGT7-(.+?)(-prerelease)?$");
+                string identity = BuildIdentity(root);
+                if (identity == null) return null;
+                string recordPath = Path.Combine(UpdateFolder(root), "installed.json");
+                if (File.Exists(recordPath))
+                {
+                    var record = new JavaScriptSerializer().DeserializeObject(File.ReadAllText(recordPath)) as Dictionary<string, object>;
+                    object version, recorded;
+                    if (record != null && record.TryGetValue("version", out version) && record.TryGetValue("build", out recorded) &&
+                        string.Equals(recorded as string, identity, StringComparison.OrdinalIgnoreCase) && version is string)
+                        return (string)version;
+                }
+                if (identity.StartsWith("commit:")) return "ci-" + identity.Substring(7, 8);
+                var match = Regex.Match(identity, "^" + Regex.Escape(Product) + @"-(.+?)(-prerelease)?$");
                 return match.Success ? match.Groups[1].Value : null;
             }
             catch { return null; }
         }
 
-        /// Release versions are dates with an optional letter for a hotfix (2026-10-27b), so they
-        /// sort as text.
+        /// What tells installed builds apart: manifest.json's name, else "commit:" + BUILD_INFO.txt's
+        /// commit. Null when there is neither.
+        static string BuildIdentity(string root)
+        {
+            try
+            {
+                string manifestPath = Path.Combine(root, "manifest.json");
+                if (File.Exists(manifestPath))
+                {
+                    var manifest = new JavaScriptSerializer { MaxJsonLength = 16 << 20 }.DeserializeObject(File.ReadAllText(manifestPath)) as Dictionary<string, object>;
+                    object name;
+                    if (manifest != null && manifest.TryGetValue("name", out name) && !string.IsNullOrEmpty(name as string)) return (string)name;
+                }
+            }
+            catch { }
+            string commit = BuildCommit(root);
+            return commit != null ? "commit:" + commit : null;
+        }
+
+        /// BUILD_INFO.txt's commit (CI and release packages built by the pipeline), or null.
+        static string BuildCommit(string root)
+        {
+            try
+            {
+                string path = Path.Combine(root, "BUILD_INFO.txt");
+                if (!File.Exists(path)) return null;
+                var info = new JavaScriptSerializer().DeserializeObject(File.ReadAllText(path)) as Dictionary<string, object>;
+                object commit;
+                if (info == null || !info.TryGetValue("commit", out commit)) return null;
+                string text = commit as string ?? "";
+                return Regex.IsMatch(text, "^[0-9a-f]{8,40}$") ? text : null;
+            }
+            catch { return null; }
+        }
+
+        /// A version as shown to the player: a nightly ("ci-1a2b3c4d") as "nightly 1a2b3c4d".
+        public static string Display(string version)
+        {
+            if (version == null) return "";
+            return version.StartsWith("ci-") ? "nightly " + version.Substring(3) : version;
+        }
+
+        /// Releases are dates with an optional letter for a hotfix (2026-10-27b), so they sort as
+        /// text. A nightly is offered when it is another commit than the installed build (the newest
+        /// successful run is the one offered), and a release over a nightly and the other way round.
         public static bool IsNewer(string candidate, string installed)
         {
-            return installed != null && candidate != null && string.CompareOrdinal(candidate, installed) > 0;
+            if (installed == null || candidate == null) return false;
+            if (candidate.StartsWith("ci-") || installed.StartsWith("ci-")) return !string.Equals(candidate, installed, StringComparison.Ordinal);
+            return string.CompareOrdinal(candidate, installed) > 0;
         }
 
         static WebClient Client()
         {
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
             var client = new WebClient();
-            client.Headers[HttpRequestHeader.UserAgent] = "ryGT7-launcher";
+            client.Headers[HttpRequestHeader.UserAgent] = Product + "-launcher";
             return client;
         }
 
-        /// The newest release with a package zip, or null.
-        public static ReleaseInfo Latest()
+        static object Json(string url)
         {
-            string json;
-            using (var client = Client()) json = client.DownloadString(ReleasesUrl);
-            var releases = new JavaScriptSerializer { MaxJsonLength = 16 << 20 }.DeserializeObject(json) as object[];
+            string text;
+            using (var client = Client())
+            {
+                client.Headers[HttpRequestHeader.Accept] = "application/vnd.github+json";
+                text = client.DownloadString(url);
+            }
+            return new JavaScriptSerializer { MaxJsonLength = 16 << 20 }.DeserializeObject(text);
+        }
+
+        /// The newest build on the channel, or null. Public repository: GitHub lists releases, runs
+        /// and artifacts without signing in (60 requests an hour per address).
+        public static ReleaseInfo Latest(string channel)
+        {
+            return channel == Nightly ? LatestNightly() : LatestRelease(channel == Prerelease);
+        }
+
+        /// The newest GitHub release (not a draft; not a pre-release unless asked) with a package zip.
+        static ReleaseInfo LatestRelease(bool prereleases)
+        {
+            var releases = Json("https://api.github.com/repos/" + Repository + "/releases?per_page=20") as object[];
             if (releases == null) return null;
             foreach (Dictionary<string, object> release in releases.OfType<Dictionary<string, object>>())
             {
+                bool pre = true.Equals(release["prerelease"]);
+                if (true.Equals(release["draft"]) || (pre && !prereleases)) continue;
                 string tag = release["tag_name"] as string ?? "";
-                if (!tag.StartsWith("gt7-")) continue;
                 var info = new ReleaseInfo
                 {
-                    Tag = tag, Version = tag.Substring(4), Name = release["name"] as string ?? tag,
-                    Notes = release.ContainsKey("description") ? release["description"] as string : ""
+                    Tag = tag, Version = tag.StartsWith(TagPrefix) ? tag.Substring(TagPrefix.Length) : tag, Prerelease = pre,
+                    Name = release["name"] as string ?? tag, Notes = release["body"] as string ?? ""
                 };
-                var assets = release["assets"] as Dictionary<string, object>;
-                var links = assets != null && assets.ContainsKey("links") ? assets["links"] as object[] : null;
-                foreach (Dictionary<string, object> link in (links ?? new object[0]).OfType<Dictionary<string, object>>())
+                string shaUrl = null;
+                var assets = release["assets"] as object[] ?? new object[0];
+                foreach (Dictionary<string, object> asset in assets.OfType<Dictionary<string, object>>())
                 {
-                    string name = link["name"] as string ?? "";
-                    if (!name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) continue;
-                    info.ZipName = name;
-                    info.ZipUrl = link["url"] as string;
-                    break;
+                    string name = asset["name"] as string ?? "";
+                    if (name.StartsWith(PackagePrefix) && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && info.ZipUrl == null)
+                    {
+                        info.ZipName = name;
+                        info.ZipUrl = asset["browser_download_url"] as string;
+                    }
                 }
                 if (info.ZipUrl == null) continue;
-                // The notes give the zip's SHA-256 next to its name ("sha256 <hex>").
-                var sha = Regex.Match(info.Notes ?? "", @"\b([0-9a-fA-F]{64})\b");
-                info.Sha256 = sha.Success ? sha.Groups[1].Value.ToLowerInvariant() : null;
+                foreach (Dictionary<string, object> asset in assets.OfType<Dictionary<string, object>>())
+                    if (string.Equals(asset["name"] as string, info.ZipName + ".sha256", StringComparison.OrdinalIgnoreCase))
+                        shaUrl = asset["browser_download_url"] as string;
+                // The checksum: the .sha256 asset, else a SHA-256 in the notes.
+                if (shaUrl != null)
+                {
+                    try { using (var client = Client()) info.Sha256 = client.DownloadString(shaUrl).Split(' ')[0].Trim().ToLowerInvariant(); }
+                    catch { }
+                }
+                if (info.Sha256 == null)
+                {
+                    var sha = Regex.Match(info.Notes, @"\b([0-9a-fA-F]{64})\b");
+                    info.Sha256 = sha.Success ? sha.Groups[1].Value.ToLowerInvariant() : null;
+                }
                 return info;
+            }
+            return null;
+        }
+
+        /// The newest successful CI build on the branch with a package artifact that has not expired.
+        static ReleaseInfo LatestNightly()
+        {
+            var runs = Json("https://api.github.com/repos/" + Repository + "/actions/workflows/" + Workflow +
+                            "/runs?branch=" + Branch + "&status=success&per_page=5") as Dictionary<string, object>;
+            object list;
+            if (runs == null || !runs.TryGetValue("workflow_runs", out list)) return null;
+            foreach (Dictionary<string, object> run in ((object[])list).OfType<Dictionary<string, object>>())
+            {
+                string id = Convert.ToString(run["id"]), sha = run["head_sha"] as string ?? "";
+                if (sha.Length < 8) continue;
+                var artifacts = Json("https://api.github.com/repos/" + Repository + "/actions/runs/" + id + "/artifacts") as Dictionary<string, object>;
+                object items;
+                if (artifacts == null || !artifacts.TryGetValue("artifacts", out items)) continue;
+                foreach (Dictionary<string, object> artifact in ((object[])items).OfType<Dictionary<string, object>>())
+                {
+                    string name = artifact["name"] as string ?? "";
+                    if (!name.StartsWith(ArtifactPrefix + sha, StringComparison.Ordinal) || true.Equals(artifact["expired"])) continue;
+                    string when = (run["created_at"] as string ?? "").Replace('T', ' ').TrimEnd('Z');
+                    return new ReleaseInfo
+                    {
+                        Artifact = true, Version = "ci-" + sha.Substring(0, 8), Tag = sha, Name = Product + " nightly " + sha.Substring(0, 8),
+                        Notes = "Built " + (when.Length >= 16 ? when.Substring(0, 16) + " UTC" : when) + " from " + Branch + ".",
+                        ZipName = NightlyPrefix + sha.Substring(0, 8) + ".zip",
+                        ZipUrl = "https://nightly.link/" + Repository + "/actions/runs/" + id + "/" + name + ".zip"
+                    };
+                }
             }
             return null;
         }
@@ -124,13 +257,13 @@ namespace RyGT
         {
             string path = relative.Replace('/', '\\').TrimStart('\\');
             if (path.Contains("..") || Path.IsPathRooted(path)) return true;
-            string first = path.Split('\\')[0];
-            if (path.Contains("\\") && ProtectedFolders.Any(f => string.Equals(f, first, StringComparison.OrdinalIgnoreCase))) return true;
+            foreach (var folder in ProtectedFolders)
+                if (path.StartsWith(folder + "\\", StringComparison.OrdinalIgnoreCase)) return true;
             return ProtectedFiles.Any(f => string.Equals(f, path, StringComparison.OrdinalIgnoreCase));
         }
 
-        /// Leftovers of an update: the staging folder and the previous RyGT7.exe, which couldn't be
-        /// deleted while it was running.
+        /// Leftovers of an update: the download and staging folders, and the previous launcher exe,
+        /// which couldn't be deleted while it was running.
         public static void CleanUp(string root)
         {
             foreach (string name in new[] { "staging", "download", "trash" })
@@ -142,7 +275,7 @@ namespace RyGT
 
         static void CheckGameClosed(string root)
         {
-            foreach (var process in Process.GetProcessesByName("GT7"))
+            foreach (var process in Process.GetProcessesByName(GameProcess))
             {
                 try
                 {
@@ -153,56 +286,109 @@ namespace RyGT
             }
         }
 
-        /// Downloads the release, checks it and installs its program files over root. progress gets
-        /// a line of text and a fraction (or -1). The replaced files go to update\backup-<old version>.
-        public static void Install(string root, ReleaseInfo release, Action<string, double> progress)
+        static void Download(string url, string path, string what, Action<string, double> progress)
         {
-            if (string.IsNullOrEmpty(release.Sha256))
-                throw new InvalidDataException("The release notes don't give the package's SHA-256, so it can't be checked.");
-            CheckGameClosed(root);
-            CleanUp(root);
-            string folder = UpdateFolder(root), download = Path.Combine(folder, "download"), staging = Path.Combine(folder, "staging");
-            Directory.CreateDirectory(download);
-            string zip = Path.Combine(download, release.ZipName);
-
-            progress("Downloading " + release.ZipName + "...", 0);
             using (var client = Client())
             {
                 var done = new System.Threading.ManualResetEvent(false);
                 Exception failure = null;
                 client.DownloadProgressChanged += (s, e) =>
-                    progress("Downloading " + release.ZipName + ": " + (e.BytesReceived >> 20) + " of " + (e.TotalBytesToReceive >> 20) + " MB",
+                    progress("Downloading " + what + ": " + (e.BytesReceived >> 20) +
+                             (e.TotalBytesToReceive > 0 ? " of " + (e.TotalBytesToReceive >> 20) : "") + " MB",
                              e.TotalBytesToReceive > 0 ? e.BytesReceived / (double)e.TotalBytesToReceive : -1);
                 client.DownloadFileCompleted += (s, e) => { failure = e.Error; done.Set(); };
-                client.DownloadFileAsync(new Uri(release.ZipUrl), zip + ".part");
+                client.DownloadFileAsync(new Uri(url), path + ".part");
                 done.WaitOne();
                 if (failure != null) throw failure;
             }
-            File.Move(zip + ".part", zip);
+            File.Move(path + ".part", path);
+        }
+
+        /// The package's files and their SHA-256, from manifest.json ("files": path, sha256) or
+        /// SHA256SUMS.txt ("<sha256>  <path>").
+        static List<KeyValuePair<string, string>> PackageFiles(string packageRoot)
+        {
+            var files = new List<KeyValuePair<string, string>>();
+            string manifestPath = Path.Combine(packageRoot, "manifest.json");
+            string sumsPath = Path.Combine(packageRoot, "SHA256SUMS.txt");
+            if (File.Exists(manifestPath))
+            {
+                var manifest = (Dictionary<string, object>)new JavaScriptSerializer { MaxJsonLength = 16 << 20 }.DeserializeObject(File.ReadAllText(manifestPath));
+                foreach (Dictionary<string, object> file in ((object[])manifest["files"]).OfType<Dictionary<string, object>>())
+                    files.Add(new KeyValuePair<string, string>((string)file["path"], ((string)file["sha256"]).ToLowerInvariant()));
+                files.Add(new KeyValuePair<string, string>("manifest.json", null));
+            }
+            else if (File.Exists(sumsPath))
+            {
+                foreach (var line in File.ReadAllLines(sumsPath))
+                {
+                    var match = Regex.Match(line, @"^([0-9a-fA-F]{64}) [ *](.+)$");
+                    if (match.Success) files.Add(new KeyValuePair<string, string>(match.Groups[2].Value, match.Groups[1].Value.ToLowerInvariant()));
+                }
+                files.Add(new KeyValuePair<string, string>("SHA256SUMS.txt", null));
+            }
+            else throw new InvalidDataException("The package lists no files (no manifest.json or SHA256SUMS.txt).");
+            return files;
+        }
+
+        /// Downloads the build, checks it and installs its program files over root. progress gets
+        /// a line of text and a fraction (or -1). The replaced files go to update\backup-<old version>.
+        public static void Install(string root, ReleaseInfo release, Action<string, double> progress)
+        {
+            if (!release.Artifact && string.IsNullOrEmpty(release.Sha256))
+                throw new InvalidDataException("The release gives no SHA-256 for its package, so it can't be checked.");
+            CheckGameClosed(root);
+            CleanUp(root);
+            string folder = UpdateFolder(root), download = Path.Combine(folder, "download"), staging = Path.Combine(folder, "staging");
+            Directory.CreateDirectory(download);
+            string zip = Path.Combine(download, release.ZipName);
+            string expected = release.Sha256;
+
+            if (release.Artifact)
+            {
+                // A nightly: the artifact holds the package zip and its .sha256.
+                string artifact = Path.Combine(download, "artifact.zip");
+                Download(release.ZipUrl, artifact, release.ZipName, progress);
+                progress("Unpacking the download...", -1);
+                string unpacked = Path.Combine(download, "artifact");
+                ZipFile.ExtractToDirectory(artifact, unpacked);
+                string inner = Directory.GetFiles(unpacked, NightlyPrefix + "*.zip", SearchOption.AllDirectories).FirstOrDefault();
+                if (inner == null || !File.Exists(inner + ".sha256")) throw new InvalidDataException("The nightly has no package zip and checksum.");
+                expected = File.ReadAllText(inner + ".sha256").Split(' ')[0].Trim().ToLowerInvariant();
+                File.Move(inner, zip);
+            }
+            else
+            {
+                Download(release.ZipUrl, zip, release.ZipName, progress);
+            }
+            if (string.IsNullOrEmpty(expected) || !Regex.IsMatch(expected, "^[0-9a-f]{64}$"))
+                throw new InvalidDataException("The package's SHA-256 is not given, so it can't be checked.");
 
             progress("Checking the download...", -1);
             string sha = Sha256Of(zip);
-            if (sha != release.Sha256)
-                throw new InvalidDataException("The download is damaged (SHA-256 " + sha + ", expected " + release.Sha256 + ").");
+            if (sha != expected)
+                throw new InvalidDataException("The download is damaged (SHA-256 " + sha + ", expected " + expected + ").");
 
             progress("Unpacking...", -1);
             ZipFile.ExtractToDirectory(zip, staging);
-            string manifestPath = Directory.GetFiles(staging, "manifest.json", SearchOption.AllDirectories)
-                                           .OrderBy(p => p.Length).FirstOrDefault();
-            if (manifestPath == null) throw new InvalidDataException("The package has no manifest.json.");
-            string packageRoot = Path.GetDirectoryName(manifestPath);
-            var manifest = (Dictionary<string, object>)new JavaScriptSerializer { MaxJsonLength = 16 << 20 }.DeserializeObject(File.ReadAllText(manifestPath));
+            // The package's top folder: the one holding manifest.json or SHA256SUMS.txt.
+            string listing = Directory.GetFiles(staging, "manifest.json", SearchOption.AllDirectories)
+                                      .Concat(Directory.GetFiles(staging, "SHA256SUMS.txt", SearchOption.AllDirectories))
+                                      .OrderBy(p => p.Length).FirstOrDefault();
+            if (listing == null) throw new InvalidDataException("The package lists no files.");
+            string packageRoot = Path.GetDirectoryName(listing);
             var files = new List<string>();
-            foreach (Dictionary<string, object> file in ((object[])manifest["files"]).OfType<Dictionary<string, object>>())
+            foreach (var file in PackageFiles(packageRoot))
             {
-                string relative = ((string)file["path"]).Replace('/', '\\');
+                string relative = file.Key.Replace('/', '\\');
                 if (IsProtected(relative)) continue;
                 string source = Path.Combine(packageRoot, relative);
-                if (!File.Exists(source) || Sha256Of(source) != ((string)file["sha256"]).ToLowerInvariant())
-                    throw new InvalidDataException("The package's " + relative + " doesn't match its manifest.");
+                if (!File.Exists(source) || (file.Value != null && Sha256Of(source) != file.Value))
+                    throw new InvalidDataException("The package's " + relative + " doesn't match its checksum list.");
                 files.Add(relative);
             }
-            files.Add("manifest.json"); // last, so a failed update still reports the old version
+            files = files.Where(f => !VersionFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
+                         .Concat(files.Where(f => VersionFiles.Contains(f, StringComparer.OrdinalIgnoreCase))).ToList();
 
             string installed = InstalledVersion(root) ?? "unknown";
             string backup = Path.Combine(folder, "backup-" + installed);
@@ -221,7 +407,7 @@ namespace RyGT
                     {
                         string saved = Path.Combine(backup, relative);
                         Directory.CreateDirectory(Path.GetDirectoryName(saved));
-                        // A move, not a copy: RyGT7.exe is running and can only be renamed.
+                        // A move, not a copy: the launcher exe is running and can only be renamed.
                         File.Move(target, saved);
                         replaced.Add(relative);
                     }
@@ -240,8 +426,23 @@ namespace RyGT
                 throw;
             }
             WriteRecord(backup, installed, release.Version, replaced, added);
+            RecordInstalled(root, release.Version);
             CleanUp(root);
-            progress("Updated to " + release.Version + ".", 1);
+            progress("Updated to " + Display(release.Version) + ".", 1);
+        }
+
+        /// What was installed, for packages whose files don't name its version (a nightly repackaged as
+        /// a release, or BUILD_INFO.txt + SHA256SUMS.txt): valid while the build identity is the same.
+        static void RecordInstalled(string root, string version)
+        {
+            string identity = BuildIdentity(root), path = Path.Combine(UpdateFolder(root), "installed.json");
+            try
+            {
+                if (identity == null || version == null || version == "unknown") { if (File.Exists(path)) File.Delete(path); return; }
+                var record = new Dictionary<string, object> { { "version", version }, { "build", identity } };
+                File.WriteAllText(path, new JavaScriptSerializer().Serialize(record));
+            }
+            catch { }
         }
 
         static void WriteRecord(string backup, string from, string to, List<string> replaced, List<string> added)
@@ -258,7 +459,7 @@ namespace RyGT
             {
                 string target = Path.Combine(root, relative);
                 if (!File.Exists(target)) continue;
-                // Moved aside rather than deleted: one of them may be the running RyGT7.exe.
+                // Moved aside rather than deleted: one of them may be the running launcher.
                 string aside = Path.Combine(trash, Guid.NewGuid().ToString("N"));
                 File.Move(target, aside);
             }
@@ -270,7 +471,7 @@ namespace RyGT
             }
         }
 
-        /// The update that can be rolled back (the newest backup), as "from" and "to" versions.
+        /// The update that can be rolled back (the newest backup), as its folder, "from" and "to".
         public static Tuple<string, string, string> LastUpdate(string root)
         {
             string folder = UpdateFolder(root);
@@ -294,12 +495,13 @@ namespace RyGT
             var added = ((object[])record["added"]).Cast<string>().ToList();
             Restore(root, last.Item1, replaced, added);
             Directory.Delete(last.Item1, true);
+            RecordInstalled(root, last.Item2);
         }
 
         /// Starts the (new) launcher and closes this one.
         public static void Restart(string root)
         {
-            Process.Start(new ProcessStartInfo(Path.Combine(root, "RyGT7.exe")) { WorkingDirectory = root, UseShellExecute = false });
+            Process.Start(new ProcessStartInfo(Path.Combine(root, LauncherExe)) { WorkingDirectory = root, UseShellExecute = false });
             System.Windows.Forms.Application.Exit();
         }
     }

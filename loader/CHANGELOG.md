@@ -6,6 +6,15 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.1.5 - 2026-11-13
+
+* FEAT-GTS-257: Three update channels (Settings > Display > "Update channel"): Stable (the
+  default), the newest GitHub release; Prerelease, the newest release or prerelease; and Nightly,
+  the newest successful build of main. Releases now come from GitHub instead of GitLab. Nightlies
+  are downloaded through nightly.link (GitHub's own artifact download needs a signed-in account),
+  checked against their SHA-256 and manifest, and installed like a release, with Roll back.
+  Changing the channel checks it right away.
+
 ## 0.1.4 - 2026-11-13
 
 * FEAT-GTS-256: The Advanced page also lists the runtime's switches (libkernel, libc, libScePad,
