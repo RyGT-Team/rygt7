@@ -1804,6 +1804,26 @@ namespace RyGT
             upscaling.Controls.Add(qualityNote);
             var rcas = AddOption(upscaling, "Sharpening (FSR)", "GPU", "rcas_enabled", true);
 
+            // FEAT-GT7-181: the texture detail of the renderer's temporal DLSS (DLSS-GT7-002 there). With DLSS
+            // the game still draws 1920x1080 and picks its texture levels for that size, so the renderer reads
+            // them finer: log2(render / output) - 1 levels, as NVIDIA's DLSS guide asks. The amount follows the
+            // size DLSS scales to: -2 to 3840x2160, about -1.4 to 2560x1440, nothing when the picture is not
+            // enlarged (a 1080p window, the Native quality). Some may find it too sharp (fine textures can
+            // shimmer in motion): Reduced drops the -1, Off the whole bias. The note gives the levels for the
+            // chosen quality. GPU.dlss_texture_detail (full, reduced, off); the game gets it as
+            // RYGT_DLSS_TEMPORAL_MIP_BIAS and RYGT_DLSS_TEMPORAL_MIP_EXTRA. The row only shows where the renderer
+            // applies the bias: NVIDIA DLSS through Streamline (sl.dlss.dll), no frame generation (temporal DLSS
+            // is off with it), and a renderer that reads those switches (an older one would ignore the setting).
+            var detailKeys = new[] { "full", "reduced", "off" };
+            var detail = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
+            detail.Items.AddRange(new object[] { "Full (recommended)", "Reduced", "Off" });
+            detail.SelectedIndex = Math.Max(0, Array.IndexOf(detailKeys, ReadStringSetting("GPU", "dlss_texture_detail", "full")));
+            var detailNote = noteLabel();
+            var detailRow = comboRow("Texture detail", detail, detailNote);
+            upscaling.Controls.Add(detailRow);
+            upscaling.Controls.Add(detailNote);
+            bool detailKnown = RendererReads("RYGT_DLSS_TEMPORAL_MIP_EXTRA");
+
             // NVIDIA files: the Download button, the status of what is there, and Add from a folder.
             var dlssStatus = noteLabel();
             dlssStatus.Margin = new Padding(0, 2, 0, 2);
@@ -2087,6 +2107,33 @@ namespace RyGT
                                               : "1920 x 1080 -> " + w + " x " + h + ", then fitted to the window. Higher is sharper and costs more GPU.";
                 }
                 rcas.Visible = m == 1 || m == 2;
+                // FEAT-GT7-181 (the row on screen is the list's parent, as for the multiplier below).
+                bool detailShown = m == 3 && detailKnown && fg.SelectedIndex == 0 && has("sl.dlss.dll");
+                (detail.Parent ?? detailRow).Visible = detailShown;
+                detailNote.Visible = detailShown;
+                int d = Math.Max(0, detail.SelectedIndex);
+                // How many levels finer: how much DLSS enlarges the picture (log2 of the scale), plus one for
+                // Full. With Auto the scale is the window's, which the launcher does not know: two examples.
+                Func<double, string> levels = value =>
+                {
+                    string text = value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+                    return text + (text == "1" ? " level" : " levels");
+                };
+                double enlarged = q >= 2 ? Math.Log(qualityScales[q], 2) : 0;
+                if (d == 2)
+                    detailNote.Text = "Textures as the game reads them at 1920 x 1080: the softest, nothing added.";
+                else if (q == 1)
+                    detailNote.Text = "No effect at the Native quality: DLSS does not enlarge the picture there.";
+                else if (d == 0)
+                    detailNote.Text = "Textures are read finer, one level for each doubling of the picture by DLSS plus one more, as NVIDIA advises: " +
+                                      (q == 0 ? "about 1.4 levels in a 2560 x 1440 window, 2 in a 3840 x 2160 one, none at 1920 x 1080. "
+                                              : levels(enlarged + 1) + " at this quality. ") +
+                                      "The sharpest; fine textures can shimmer in motion. It comes on top of Texture sharpness: with Full, leave that on Game default.";
+                else
+                    detailNote.Text = "One level less than Full: " +
+                                      (q == 0 ? "about 0.4 levels in a 2560 x 1440 window, 1 in a 3840 x 2160 one, none at 1920 x 1080. "
+                                              : levels(enlarged) + " at this quality. ") +
+                                      "A little softer, less shimmer. It comes on top of Texture sharpness.";
                 fgNote.Text = fg.SelectedIndex == 0 ? "Off: the game's own frame rate."
                             : fg.SelectedIndex == 1 ? (fsr3Installed ? "About 2x the frames on any GPU." : "Needs amd_fidelityfx_vk.dll next to GT7.exe.")
                             : dlssgOk ? "Generated frames between game frames. RTX 40 or newer."
@@ -2147,6 +2194,12 @@ namespace RyGT
                 refresh();
             };
             quality.SelectedIndexChanged += delegate { save(); refresh(); };
+            detail.SelectedIndexChanged += delegate
+            {
+                try { WriteSetting("GPU", "dlss_texture_detail", detailKeys[Math.Max(0, detail.SelectedIndex)]); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+                refresh();
+            };
             fg.SelectedIndexChanged += delegate
             {
                 if (!loading && ((fg.SelectedIndex == 2 && !dlssgReady()) || (fg.SelectedIndex == 1 && !fsr3Installed)))
@@ -3697,6 +3750,41 @@ namespace RyGT
             Log("Linked " + linked + " game files. Update files override matching base files; other base files are preserved.");
         }
 
+        /// Whether the installed renderer (libs\libSceVideoOut.prx) names this switch, so reads it (FEAT-GT7-181):
+        /// an option for a switch an older renderer does not have would do nothing.
+        bool RendererReads(string name)
+        {
+            try { return NamesSwitch(File.ReadAllBytes(Path.Combine(root, SwitchWalker.RendererFile)), name); }
+            catch { return false; }
+        }
+
+        /// Whether these bytes hold the switch's name as a whole NUL-terminated string: not the start of a longer
+        /// name, nor the end of one (as SwitchWalker reads names).
+        internal static bool NamesSwitch(byte[] data, string name)
+        {
+            byte[] text = Encoding.ASCII.GetBytes(name);
+            for (int i = 0; i + text.Length < data.Length; i++)
+            {
+                if (data[i] != text[0]) continue;
+                int j = 1;
+                while (j < text.Length && data[i + j] == text[j]) j++;
+                if (j != text.Length || data[i + j] != 0) continue;
+                byte before = i > 0 ? data[i - 1] : (byte)0;
+                bool nameByte = before == '_' || (before >= '0' && before <= '9') || (before >= 'A' && before <= 'Z') ||
+                                (before >= 'a' && before <= 'z');
+                if (!nameByte) return true;
+            }
+            return false;
+        }
+
+        /// FEAT-GT7-181: the renderer's variables for a GPU.dlss_texture_detail value. Full (and anything unknown,
+        /// as the page shows it) sets nothing: they are the renderer's defaults, and a script's own values stay.
+        internal static void DlssDetailVariables(string setting, out string bias, out string extra)
+        {
+            bias = setting == "off" ? "0" : setting == "reduced" ? "1" : null;
+            extra = setting == "reduced" ? "0" : null;
+        }
+
         /// Whether the installed runtime reads /app0 from the game folders itself (FEAT-GTS-251): its
         /// libc exports ListLayeredDirectory. Release packages can pair a new launcher with older
         /// runtime libraries, which only find the game's files when they are linked into app0.
@@ -4083,6 +4171,12 @@ namespace RyGT
                         start.EnvironmentVariables["RYGT_UPSCALE_QUALITY"] = GpuSetting(root, "upscale_quality") as string ?? "auto";
                         // Texture sharpness from the Graphics page (detail levels added to every sampler's bias).
                         start.EnvironmentVariables["RYGT_TEXTURE_LOD_BIAS"] = GpuSetting(root, "texture_lod_bias") as string ?? "0";
+                        // FEAT-GT7-181: DLSS texture detail from the Graphics page. Reduced: the bias without its -1;
+                        // Off: no bias; Full sets nothing. A renderer without these switches ignores them.
+                        string dlssBias, dlssExtra;
+                        DlssDetailVariables(GpuSetting(root, "dlss_texture_detail") as string, out dlssBias, out dlssExtra);
+                        if (dlssBias != null) start.EnvironmentVariables["RYGT_DLSS_TEMPORAL_MIP_BIAS"] = dlssBias;
+                        if (dlssExtra != null) start.EnvironmentVariables["RYGT_DLSS_TEMPORAL_MIP_EXTRA"] = dlssExtra;
                         // PS4 Pro mode from the Graphics page (NEO-GT7). PS4 (off) sets nothing, so a launcher
                         // script's own values stay. The other modes set or remove all three variables themselves:
                         // RYGT_NEO=1 with the checkerboard (4K TV, Full, Custom with its box), plus RYGT_NEO_TV=1080

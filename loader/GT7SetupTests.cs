@@ -232,6 +232,25 @@ namespace RyGT
                     OfflinePatch.Overlay(image, layout, patch.Writes);
                     Check(image.SequenceEqual(File.ReadAllBytes(args[5])), "Offline mode patch differs from the verified GT7.exe");
                 }
+                // FEAT-GT7-181: the renderer's switch names, and the DLSS texture detail's variables.
+                Func<string, byte[]> bytes = text => System.Text.Encoding.ASCII.GetBytes(text);
+                Check(LoaderForm.NamesSwitch(bytes("xx\0RYGT_A\0yy"), "RYGT_A"), "A switch name inside the file is found");
+                Check(LoaderForm.NamesSwitch(bytes("RYGT_A\0"), "RYGT_A"), "A switch name at the start of the file is found");
+                Check(!LoaderForm.NamesSwitch(bytes("xx\0RYGT_A"), "RYGT_A"), "A name cut at the end of the file is not a switch");
+                Check(!LoaderForm.NamesSwitch(bytes("\0RYGT_AB\0"), "RYGT_A"), "The start of a longer name is not that switch");
+                Check(!LoaderForm.NamesSwitch(bytes("\0XRYGT_A\0"), "RYGT_A"), "The end of a longer name is not that switch");
+                Check(!LoaderForm.NamesSwitch(new byte[0], "RYGT_A"), "An empty file names no switch");
+                string detailBias, detailExtra;
+                LoaderForm.DlssDetailVariables("full", out detailBias, out detailExtra);
+                Check(detailBias == null && detailExtra == null, "DLSS texture detail Full sets no variable");
+                LoaderForm.DlssDetailVariables(null, out detailBias, out detailExtra);
+                Check(detailBias == null && detailExtra == null, "A missing DLSS texture detail sets no variable");
+                LoaderForm.DlssDetailVariables("Reduced", out detailBias, out detailExtra);
+                Check(detailBias == null && detailExtra == null, "An unknown DLSS texture detail is Full, as the page shows it");
+                LoaderForm.DlssDetailVariables("reduced", out detailBias, out detailExtra);
+                Check(detailBias == "1" && detailExtra == "0", "DLSS texture detail Reduced: the bias without its extra level");
+                LoaderForm.DlssDetailVariables("off", out detailBias, out detailExtra);
+                Check(detailBias == "0" && detailExtra == null, "DLSS texture detail Off: no bias");
                 Console.WriteLine("PASS: " + checks + " GT7 setup checks");
                 return 0;
             }
