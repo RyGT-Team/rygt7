@@ -67,11 +67,11 @@ std::string ConfigValue(const char* key) {
 }
 
 // The screen shape the renderer stretches the picture to (the same rules as its GTS-009): "auto"
-// (the window's or screen's shape), "21:9", "32:9", width:height or a number; RYGT_ASPECT
+// (the window's or screen's shape), "21:9", "32:9", width:height or a number; SHARED_ASPECT
 // overrides it. 0 when the game's own 16:9 applies.
 float DisplayAspect() {
     std::string value = ConfigValue("aspect_ratio");
-    if (const char* env = std::getenv("RYGT_ASPECT")) value = env;
+    if (const char* env = std::getenv("SHARED_ASPECT")) value = env;
     double ratio = 0.0;
     if (value == "auto") {
         const bool full = ConfigValue("full_screen") == "true";

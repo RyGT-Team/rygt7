@@ -98,20 +98,20 @@ void Apply() {
 #endif
     // As the launcher's StartGame (loader/RyGTLoader.cs) sets them; keep the two in step.
     SetIfMissing("RYTY_INTEROP_BASE", "8000000000");
-    SetIfMissing("RYGT_NATIVE_INPLACE_RANGES", "1020000000+1de000,1020235000+1dd000,1020407000+b000,200000000+8000000");
-    SetIfMissing("RYGT_NATIVE_INPLACE_FROM", "e000000000");
+    SetIfMissing("SHARED_NATIVE_INPLACE_RANGES", "1020000000+1de000,1020235000+1dd000,1020407000+b000,200000000+8000000");
+    SetIfMissing("SHARED_NATIVE_INPLACE_FROM", "e000000000");
     if (!root.empty()) SetIfMissing("RYGT_LOG_DIRECTORY", root + "logs");
-    SetIfMissing("SHADGT_FPS_LOCK", Setting(config, "race_fps_lock") == "60" ? "60" : "30");
+    SetIfMissing("SHARED_FPS_LOCK", Setting(config, "race_fps_lock") == "60" ? "60" : "30");
     const long cacheMb = Setting(config, "driver_cache_unlimited") == "true"
                              ? -1
                              : Clamp(Setting(config, "driver_cache_gb"), 5, 0, 100) * 1024L;
-    SetIfMissing("RYGT_DRIVER_CACHE_MAX_MB", std::to_string(cacheMb));
-    SetIfMissing("RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC", Setting(config, "amd_graphics_fix") == "true" ? "1" : "0");
-    SetIfMissing("RYGT_DLSSG_FRAMES", std::to_string(Clamp(Setting(config, "dlssg_frames"), 1, 1, 5)));
+    SetIfMissing("SHARED_DRIVER_CACHE_MAX_MB", std::to_string(cacheMb));
+    SetIfMissing("SHARED_AMD_SINGLE_SAMPLE_BARYCENTRIC", Setting(config, "amd_graphics_fix") == "true" ? "1" : "0");
+    SetIfMissing("SHARED_DLSSG_FRAMES", std::to_string(Clamp(Setting(config, "dlssg_frames"), 1, 1, 5)));
     const std::string quality = Setting(config, "upscale_quality");
-    SetIfMissing("RYGT_UPSCALE_QUALITY", quality.empty() ? "auto" : quality);
+    SetIfMissing("SHARED_UPSCALE_QUALITY", quality.empty() ? "auto" : quality);
     const std::string bias = Setting(config, "texture_lod_bias");
-    SetIfMissing("RYGT_TEXTURE_LOD_BIAS", bias.empty() ? "0" : bias);
+    SetIfMissing("SHARED_TEXTURE_LOD_BIAS", bias.empty() ? "0" : bias);
     std::fprintf(stderr, "[launch] started without the launcher: its settings applied from %s\n",
                  config.empty() ? "defaults" : "user\\custom_configs\\CUSA03220.json");
 }

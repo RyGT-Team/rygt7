@@ -43,14 +43,14 @@ namespace RyGT
         static readonly HashSet<string> LauncherManaged = new HashSet<string>
         {
             // Set by ryGT7's StartGame every time (from its own settings); the Advanced page would only
-            // override them. The ones it sets only when an option is checked (RYGT_MANIFEST_*,
-            // RYGT_COMPILE_PACK) stay listed.
-            "RYGT_LOG_DIRECTORY", "RYGT_NATIVE_INPLACE_RANGES", "RYGT_NATIVE_INPLACE_FROM", "SHADGT_FPS_LOCK",
-            "RYGT_DRIVER_CACHE_MAX_MB", "RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC", "RYGT_DLSSG_FRAMES",
-            "RYGT_UPSCALE_QUALITY", "RYGT_TEXTURE_LOD_BIAS",
+            // override them. The ones it sets only when an option is checked (SHADGT_MANIFEST_*,
+            // SHADGT_COMPILE_PACK) stay listed.
+            "RYGT_LOG_DIRECTORY", "SHARED_NATIVE_INPLACE_RANGES", "SHARED_NATIVE_INPLACE_FROM", "SHARED_FPS_LOCK",
+            "SHARED_DRIVER_CACHE_MAX_MB", "SHARED_AMD_SINGLE_SAMPLE_BARYCENTRIC", "SHARED_DLSSG_FRAMES",
+            "SHARED_UPSCALE_QUALITY", "SHARED_TEXTURE_LOD_BIAS",
             // PS4 Pro mode on the Graphics page (NEO-GT7, #33) sets or removes these itself; set here they
             // would silently override it.
-            "RYGT_NEO", "RYGT_NEO_TV", "RYGT_NEO_EXTRAS"
+            "SHARED_NEO", "SHADGT_NEO_TV", "SHADGT_NEO_EXTRAS"
         };
 
         static readonly string[] GroupOrder =
@@ -117,7 +117,7 @@ namespace RyGT
                 // Strings may follow other data directly (the compiler packs them), so only a name
                 // character right before rules a match out.
                 if ((data[i] != (byte)'R' && data[i] != (byte)'S') || (i > 0 && IsNameByte(data[i - 1]))) continue;
-                if (!StartsWith(data, i, "RYGT") && !StartsWith(data, i, "SHADGT_")) continue;
+                if (!StartsWith(data, i, "RYGT") && !StartsWith(data, i, "SHADGT_") && !StartsWith(data, i, "SHARED_")) continue;
                 int end = i;
                 while (end < data.Length && data[end] != 0 && end - i < 4096) ++end;
                 if (end >= data.Length || data[end] != 0) continue;
@@ -150,8 +150,88 @@ namespace RyGT
             return list.OrderBy(s => order(s.Group)).ThenBy(s => s.Group, StringComparer.Ordinal).ThenBy(s => s.Name, StringComparer.Ordinal).ToList();
         }
 
-        /// The prefixes of the renderer's switches: RYGT_ (ryGT's) and SHADGT_ (shadGT's, FEAT-GTS-443).
-        static readonly string[] NamePrefixes = { "RYGT_", "SHADGT_" };
+        /// The prefixes of the switches (FEAT-GTS-260): SHADGT_ for the renderer's, RYGT_ for the runtime's,
+        /// SHARED_ for those both read.
+        public static readonly string[] NamePrefixes = { "SHADGT_", "RYGT_", "SHARED_" };
+
+        /// FEAT-GTS-260: saved entries the installed build no longer reads, but reads under another of the
+        /// prefixes (RYGT_PARALLEL_WORKERS, now SHADGT_PARALLEL_WORKERS), as old name -> new name. An
+        /// entry whose new name is saved too is left out: that one is used.
+        public static List<KeyValuePair<string, string>> FindRenames(IEnumerable<EnvVar> env, ICollection<string> known)
+        {
+            var renames = new List<KeyValuePair<string, string>>();
+            var names = new HashSet<string>(env.Select(e => e.Name), StringComparer.Ordinal);
+            foreach (var entry in env)
+            {
+                if (known.Contains(entry.Name)) continue;
+                int cut = entry.Name.IndexOf('_');
+                if (cut < 0 || Array.IndexOf(NamePrefixes, entry.Name.Substring(0, cut + 1)) < 0) continue;
+                string tail = entry.Name.Substring(cut + 1);
+                foreach (var prefix in NamePrefixes)
+                {
+                    string renamed = prefix + tail;
+                    if (renamed == entry.Name || !known.Contains(renamed) || names.Contains(renamed)) continue;
+                    names.Add(renamed);
+                    renames.Add(new KeyValuePair<string, string>(entry.Name, renamed));
+                    break;
+                }
+            }
+            return renames;
+        }
+
+        /// Gives the entries of `env` named in `renames` their new name; how many were renamed.
+        public static int Rename(List<EnvVar> env, IEnumerable<KeyValuePair<string, string>> renames)
+        {
+            int renamed = 0;
+            var names = new HashSet<string>(env.Select(e => e.Name), StringComparer.Ordinal);
+            foreach (var pair in renames)
+            {
+                if (names.Contains(pair.Value)) continue;
+                var entry = env.FirstOrDefault(e => e.Name == pair.Key);
+                if (entry == null) continue;
+                names.Remove(entry.Name);
+                names.Add(pair.Value);
+                entry.Name = pair.Value;
+                ++renamed;
+            }
+            return renamed;
+        }
+
+        /// Whether any saved entry is named like a switch (so the modules are worth reading).
+        public static bool HasSwitchNames(IEnumerable<EnvVar> env)
+        {
+            return env.Any(e => NamePrefixes.Any(p => e.Name.StartsWith(p, StringComparison.Ordinal)));
+        }
+
+        static string knownStamp;
+        static HashSet<string> knownNames;
+        static readonly object knownLock = new object();
+
+        /// The switch names the installed build reads (the renderer and the runtime modules), read
+        /// again only when a module changed (sizes and times). Empty when the modules can't be read.
+        public static HashSet<string> KnownNames(string root)
+        {
+            lock (knownLock)
+            {
+                try
+                {
+                    string libs = Path.GetDirectoryName(Path.Combine(root, RendererFile));
+                    var stamp = new StringBuilder();
+                    foreach (var file in Directory.GetFiles(libs, "*.prx").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+                    {
+                        var info = new FileInfo(file);
+                        stamp.Append(info.Name).Append(':').Append(info.Length).Append(':').Append(info.LastWriteTimeUtc.Ticks).Append(';');
+                    }
+                    if (knownNames == null || knownStamp != stamp.ToString())
+                    {
+                        knownNames = new HashSet<string>(WalkAll(root).Select(s => s.Name), StringComparer.Ordinal);
+                        knownStamp = stamp.ToString();
+                    }
+                    return knownNames;
+                }
+                catch { return new HashSet<string>(); }
+            }
+        }
 
         static bool IsSwitchName(string text)
         {
@@ -342,7 +422,7 @@ namespace RyGT
         }
 
         /// FEAT-GTS-259: switches of one group whose names share their first two words (RYGT_PARALLEL_*),
-        /// shown under one row. Switch is the switch named after the family (RYGT_NATIVE), if the group
+        /// shown under one row. Switch is the switch named after the family (SHADGT_NATIVE), if the group
         /// has one: then that switch is the family's row.
         sealed class SwitchFamily
         {
@@ -353,7 +433,7 @@ namespace RyGT
             public readonly List<DataGridViewRow> Children = new List<DataGridViewRow>();
         }
 
-        /// The first two words of a switch name with more after them (RYGT_PARALLEL_X -> RYGT_PARALLEL).
+        /// The first two words of a switch name with more after them (SHADGT_PARALLEL_X -> SHADGT_PARALLEL).
         static string FamilyPrefix(string name)
         {
             var parts = name.Split('_');
@@ -580,7 +660,7 @@ namespace RyGT
                     }
                     else
                     {
-                        int f = grid.Rows.Add(key + "_*", "", "");
+                        int f = grid.Rows.Add(key, "", "");
                         family.Row = grid.Rows[f];
                         family.Row.Tag = f;
                         family.Row.ReadOnly = true;
@@ -643,7 +723,7 @@ namespace RyGT
                 foreach (var heading in headings) heading.Key.Visible = sortColumn < 0 && visibleGroups.Contains(heading.Value);
                 grid.ResumeLayout();
                 count.Text = walkError != null ? "Could not read " + SwitchWalker.RendererFile + ": " + walkError
-                           : catalog.Count == 0 ? "No RYGT_ or SHADGT_ switches found in " + SwitchWalker.RendererFile
+                           : catalog.Count == 0 ? "No SHADGT_, RYGT_ or SHARED_ switches found in " + SwitchWalker.RendererFile
                            : shown + " of " + catalog.Count + " switches, " + values.Count + " changed" + rendererDate;
                 lastShown = shown;
             };
@@ -764,7 +844,7 @@ namespace RyGT
                 const TextFormatFlags line = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
                                              TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
                 TextRenderer.DrawText(g, isOpen(family) ? "\u25BE" : "\u25B8", grid.Font, new Rectangle(b.X + 5, b.Y, 14, b.Height), Dark.DimText, line);
-                string name = family.Switch != null ? family.Switch.Name : family.Prefix + "_*";
+                string name = family.Switch != null ? family.Switch.Name : family.Prefix;
                 int x = b.X + 21;
                 var nameArea = new Rectangle(x, b.Y, Math.Max(0, b.Right - x - 4), b.Height);
                 TextRenderer.DrawText(g, name, e.CellStyle.Font, nameArea, e.CellStyle.ForeColor, line | TextFormatFlags.EndEllipsis);
@@ -1005,6 +1085,8 @@ namespace RyGT
                 if (grid.IsCurrentCellInEditMode) grid.EndEdit();
                 var entries = Profiles.Read(Profiles.PathOf(profileDir, name));
                 if (entries == null) { MessageBox.Show(page.FindForm(), "Could not read the profile \"" + name + "\"."); return; }
+                // FEAT-GTS-260: a profile saved before the switches were renamed loads with the new names.
+                SwitchWalker.Rename(entries, SwitchWalker.FindRenames(entries, known));
                 if (savedEnv.Count > 0 &&
                     MessageBox.Show(page.FindForm(), "Replace the current " + savedEnv.Count + (savedEnv.Count == 1 ? " setting" : " settings") +
                                     " with the profile \"" + name + "\" (" + entries.Count + ")?", "Load profile",

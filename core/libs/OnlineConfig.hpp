@@ -14,7 +14,7 @@
 // RyGT.ini (next to GTSport.exe) keys, each overridable by an environment variable:
 //   online=1                       RYGT_ONLINE
 //   online_id=RyGTPlayer           RYGT_ONLINE_ID     (PSN online ID, 3-16 characters)
-//   online_server=127.0.0.1:7890   RYGT_ONLINE_SERVER (RyGTServer host[:port])
+//   online_server=127.0.0.1:7890   SHARED_ONLINE_SERVER (RyGTServer host[:port])
 //   online_address=26.12.34.56     RYGT_ONLINE_ADDRESS (this PC's address as other players reach
 //                                  it; by default the address on the network RyGTServer is on)
 namespace RyGTOnline {
@@ -80,7 +80,7 @@ inline Config Load() {
     }
     if (const char* value = std::getenv("RYGT_ONLINE")) Apply(config, "online", value);
     if (const char* value = std::getenv("RYGT_ONLINE_ID")) Apply(config, "online_id", value);
-    if (const char* value = std::getenv("RYGT_ONLINE_SERVER")) Apply(config, "online_server", value);
+    if (const char* value = std::getenv("SHARED_ONLINE_SERVER")) Apply(config, "online_server", value);
     if (const char* value = std::getenv("RYGT_ONLINE_ADDRESS")) Apply(config, "online_address", value);
     config.accountId = AccountIdFor(config.onlineId);
     return config;

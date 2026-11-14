@@ -9,8 +9,8 @@ commit `4371a500`):
 |---|---|
 | `0001-ryGT-frame-generation-...` | AMD FSR 3.1.4 frame generation, pausing the game while new shaders compile, compile batching, efficiency-core shader compiles, opt-in diagnostics |
 | `0002-ryGT-splash-screen-shows-...` | Hotfix: the splash screen shows while the game waits (it was a black screen) |
-| `0003-ryGT-Lewis-Hamilton-Time-Trial-...` | GTS-002: unlocks the Lewis Hamilton Time Trial Challenge in the Campaign menu (the add-on's unlock flags came from the shut-down servers); `RYGT_LEWIS=0` turns it off |
-| `0004-ryGT-Livery-Editor-offline-GTS-003` | GTS-003: enables the Livery button on the main menu while offline (the menu script greyed it out without the servers; the editor has its own offline mode that saves liveries locally); `RYGT_LIVERY=0` turns it off |
+| `0003-ryGT-Lewis-Hamilton-Time-Trial-...` | GTS-002: unlocks the Lewis Hamilton Time Trial Challenge in the Campaign menu (the add-on's unlock flags came from the shut-down servers); `SHADGT_LEWIS=0` turns it off |
+| `0004-ryGT-Livery-Editor-offline-GTS-003` | GTS-003: enables the Livery button on the main menu while offline (the menu script greyed it out without the servers; the editor has its own offline mode that saves liveries locally); `SHADGT_LIVERY=0` turns it off |
 | `0005-ryGT-effects-fix-frame-generation-...` | Dust, smoke and rain no longer show pink and black rectangles (the game's clears of reused effect memory ran as skipped "mask clears"); frame generation starts after the splash screen; slow-motion shader compiles; freeze and frame-capture diagnostics |
 | `0006-ryGT-on-screen-keyboard-offline-livery-...` | On-screen keyboard for text fields, whole-script replacements from `patches\scripts` (GTS-005), custom decals from the `decals` folder (GTS-006) |
 | `0007-ryGT-renderer-speed-work-2026-10-15` | Recorder speed-ups (fence writes through cached aliases, texture lookup memo), the decoder's shader search tries the last match first, early-fence deadlock fixes, and the opt-in multithreaded groundwork (per-thread draw state and command rings, buffer stage workers, shared buffer-cache lock) with ceiling and timeline diagnostics |
@@ -39,7 +39,7 @@ Patch 0039 is the shader-compile work (all-core compiles when many wait, faster 
 translation, store dump). Patch 0040 adds the native renderer (experimental): GT Sport's command
 buffers are recorded straight into Vulkan by its own renderer instead of shadGT's (about 33-39 fps
 against 29 in the Tokyo rain benchmark). The launcher's "Renderer" dropdown picks it
-(`GPU.native_renderer`; `RYGT_NATIVE=1` or `=0` overrides); the old renderer stays the default.
+(`GPU.native_renderer`; `SHADGT_NATIVE=1` or `=0` overrides); the old renderer stays the default.
 Known open problems: in Tokyo at night the cockpit's ambient light flickers between warm and dark
 frames, and rare frames are drawn from a wrong camera. Patch 0041 makes shadGT apply the VMA patch
 by itself at configure time. Patch 0042 lets the non-renderer host libraries link again (a no-op
@@ -50,7 +50,7 @@ the background shader workers read guest memory safely, since the game can relea
 the renderer still reads it (two crashes in a Linux tester's runs).
 Patch 0045 (DIAG-161) prints GT Sport's own fatal-error message to stderr before the game ends
 itself ("[game] fatal error at <file>(<line>): <message>"). Patch 0046 (DIAG-163) logs the first 60
-scripts the game loads at start-up ("[boot] script <n> (+<ms> ms): <unit>"; `RYGT_LOG_BOOT=0` turns it
+scripts the game loads at start-up ("[boot] script <n> (+<ms> ms): <unit>"; `SHADGT_LOG_BOOT=0` turns it
 off), to show how far a boot that ends early got.
 
 Patch 0042 (Gabarsolon) fixes Intel Arc rendering, compute barrier deadlocks, and DirectMemory performance
@@ -74,12 +74,12 @@ screenshots of an empty picture); building from it is the simplest way to get th
 Patches 0042-0050 are included there too (`ryty-gpu` and `linux-proton` are both at `0522545b`). Patch 0047
 puts the shader cache in `<RyGT folder>\shaders` instead of `user\cache`; 0048 makes the launcher's Info
 log level include the renderer's Info lines (frame-time windows). 0049 (FIX-165) stops using the driver's
-pipeline cache file (`RYGT_DRIVER_CACHE=1` turns it back on, saved only at exit): at 3.7 GB, its
+pipeline cache file (`SHADGT_DRIVER_CACHE=1` turns it back on, saved only at exit): at 3.7 GB, its
 saves every 30 s made native races drop to 10 fps and back. 0050 (DIAG-166) attaches RenderDoc when its
 layer is on: F12 or a `capture.now` file in the RyGT folder captures a frame into `captures`.
 Patch 0057 (GTS-009) fills screens wider (or narrower) than 16:9: `GPU.aspect_ratio` ("auto", the
 launcher's Display > Screen shape > "Fill the screen", is the shape of the game's window or screen;
-also "21:9", "32:9", width:height or a number; `RYGT_ASPECT` overrides it) widens the race camera's
+also "21:9", "32:9", width:height or a number; `SHARED_ASPECT` overrides it) widens the race camera's
 16:9 aspect (eboot 0x5e717f) and stretches the picture over the whole window instead of black
 bars. The HUD and menus are stretched with the picture; 16:9, the default, changes nothing.
 

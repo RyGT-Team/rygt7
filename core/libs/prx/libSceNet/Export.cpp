@@ -435,7 +435,7 @@ void disable_udp_connreset(NativeSocket socket) {
 }
 
 std::uint16_t p2p_configured_port(std::uint16_t requested) {
-    if (const char* text = std::getenv("RYGT_P2P_PORT")) {
+    if (const char* text = std::getenv("SHARED_P2P_PORT")) {
         const long value = std::strtol(text, nullptr, 10);
         if (value > 0 && value < 65536) return static_cast<std::uint16_t>(value);
     }
@@ -919,7 +919,7 @@ int* APS5_VABI sceNetErrnoLoc(void) {
 }
 
 // GT7's debug log. GT7 (CUSA24769 1.1.0) keeps its engine logger (category, level, source file,
-// line, printf format...) in the retail build but sends the text nowhere; with RYGT_GAME_LOG=1 its
+// line, printf format...) in the retail build but sends the text nowhere; with SHARED_GAME_LOG=1 its
 // first instruction is replaced by a jump here, which writes every message to gt7_game.log. The
 // logger is found by its address in GT7.exe and recognised by its first bytes, so other games
 // and builds are left alone.
@@ -1244,8 +1244,8 @@ void install_gt7_probes() {
 void install_game_log() {
     static std::once_flag once;
     std::call_once(once, [] {
-        // RYGT_GAME_LOG=1, or game_log=1 in RyGT.ini.
-        const char* enabled = std::getenv("RYGT_GAME_LOG");
+        // SHARED_GAME_LOG=1, or game_log=1 in RyGT.ini.
+        const char* enabled = std::getenv("SHARED_GAME_LOG");
         bool on = enabled && std::strcmp(enabled, "1") == 0;
         if (!enabled) {
             if (std::FILE* ini = std::fopen("RyGT.ini", "r")) {

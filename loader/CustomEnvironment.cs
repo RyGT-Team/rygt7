@@ -1,5 +1,5 @@
 // FEAT-GTS-433: custom environment variables for GT7.exe, set in the launcher instead of a shell
-// (RYGT_SO_CACHE, RYGT_SO_HASH_MASK and the other renderer and runtime switches).
+// (SHADGT_SO_CACHE, RYGT_SO_HASH_MASK and the other renderer and runtime switches).
 // Saved in RyGT7.ini as "env=<1|0>|NAME=VALUE" lines; enabled rows are applied last when the game starts.
 using System;
 using System.Collections.Generic;

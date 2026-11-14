@@ -121,7 +121,7 @@ std::string IniValue(const char* key) {
 }
 
 uint16_t P2PPort() {
-    if (const char* text = std::getenv("RYGT_P2P_PORT")) {
+    if (const char* text = std::getenv("SHARED_P2P_PORT")) {
         const int port = std::atoi(text);
         if (port > 0 && port < 65536) return static_cast<uint16_t>(port);
     }

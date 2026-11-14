@@ -1524,6 +1524,7 @@ namespace RyGT
         public string Game = "", Update = "", Modules = "", Fonts = "";
         public string StdoutLevel = "Warning";
         public bool ShowAdvanced = false;            // FEAT-GTS-254: the Advanced page in the sidebar (hidden by default)
+        public bool PromptObsolete = true;           // FEAT-GTS-260: offer to update obsolete settings at start
         public List<EnvVar> Env = new List<EnvVar>(); // FEAT-GTS-254: env= lines, set for GT7.exe
         readonly string path;
 
@@ -1548,13 +1549,14 @@ namespace RyGT
                 else if (key == "fonts") Fonts = value;
                 else if (key == "stdout_level") StdoutLevel = LogFiles.Levels[LogFiles.LevelIndex(value)];
                 else if (key == "show_advanced") ShowAdvanced = value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase);
+                else if (key == "prompt_obsolete") PromptObsolete = !(value == "0" || value.Equals("false", StringComparison.OrdinalIgnoreCase));
             }
         }
 
         public void Save()
         {
             var own = new List<string> { "game=" + Game, "update=" + Update, "modules=" + Modules, "fonts=" + Fonts, "stdout_level=" + StdoutLevel,
-                                         "show_advanced=" + (ShowAdvanced ? "1" : "0") };
+                                         "show_advanced=" + (ShowAdvanced ? "1" : "0"), "prompt_obsolete=" + (PromptObsolete ? "1" : "0") };
             foreach (var entry in Env) own.Add("env=" + CustomEnvironment.Format(entry));
             File.WriteAllLines(path, own);
             // The runtime libraries read their log threshold, and (FEAT-GTS-251) the game and update
@@ -1760,7 +1762,7 @@ namespace RyGT
             // which the Download button fetches from NVIDIA's GitHub; DlssDownload.cs), or a
             // self-built ryGT_dlss.dll when Streamline's DLSS plugin is absent. Settings:
             // GPU.fsr_enabled, fsr3_enabled, dlss_enabled, rcas_enabled and upscale_quality (the game
-            // gets the last as RYGT_UPSCALE_QUALITY).
+            // gets the last as SHARED_UPSCALE_QUALITY).
             var upscaling = Section(graphicsPage, "Upscaling");
             bool fsr3Installed = File.Exists(Path.Combine(root, "amd_fidelityfx_vk.dll"));
             string dlssDir = Path.Combine(root, "dlss");
@@ -1808,7 +1810,7 @@ namespace RyGT
 
             // Frame generation: one at a time, AMD's (any GPU, about 2x) or NVIDIA's (RTX 40 and
             // newer, Windows' hardware-accelerated GPU scheduling on; 2x-6x, the multiplier is
-            // GPU.dlssg_frames, which the game gets as RYGT_DLSSG_FRAMES). Settings:
+            // GPU.dlssg_frames, which the game gets as SHARED_DLSSG_FRAMES). Settings:
             // GPU.framegen_enabled, dlssg_enabled.
             var frameGen = Section(graphicsPage, "Frame generation");
             var fg = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
@@ -1892,7 +1894,7 @@ namespace RyGT
             // ps4_pro_blur, ps4_pro_replays60, ps4_pro_replay_blur, ps4_pro_garage60 and ps4_pro_lod. A mode other
             // than custom ticks the boxes as that console has them, and the boxes pick the mode back: as a console
             // has them, that mode; any other choice, custom. Only the checkerboard box turns the Pro mode on in
-            // custom. StartGame turns them into RYGT_NEO, RYGT_NEO_TV and RYGT_NEO_EXTRAS (NEO-GT7-014 in the renderer).
+            // custom. StartGame turns them into SHARED_NEO, SHADGT_NEO_TV and SHADGT_NEO_EXTRAS (NEO-GT7-014 in the renderer).
             var pro = Section(graphicsPage, "PS4 Pro mode");
             var proKeys = new[] { "off", "4k", "1080p", "full", "custom" };
             var proMode = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320, FlatStyle = FlatStyle.Flat };
@@ -2179,7 +2181,7 @@ namespace RyGT
                 }) { IsBackground = true };
                 worker.Start();
             };
-            // Race frame rate (GPU.race_fps_lock, the game gets it as SHADGT_FPS_LOCK): an even 30
+            // Race frame rate (GPU.race_fps_lock, the game gets it as SHARED_FPS_LOCK): an even 30
             // by default; 60 when the PC keeps up. 60 is marked experimental: busy race sections
             // stay well under it, and frames of 16.7, 33 and 50 ms mixed judder more than an even 30.
             var fpsRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 2), WrapContents = false };
@@ -2189,7 +2191,7 @@ namespace RyGT
             fpsRow.Controls.Add(fpsLock);
             graphics.Controls.Add(fpsRow);
             fpsLock.SelectedIndex = ReadIntSetting("GPU", "race_fps_lock", 30) == 60 ? 1 : 0;
-            // Texture sharpness (GPU.texture_lod_bias, the game gets it as RYGT_TEXTURE_LOD_BIAS):
+            // Texture sharpness (GPU.texture_lod_bias, the game gets it as SHARED_TEXTURE_LOD_BIAS):
             // textures are read at finer detail levels than GT7 asks for. Two levels were far too
             // strong in testing, so the list stops at one.
             var sharpnessValues = new[] { "0", "-0.5", "-1" };
@@ -2212,7 +2214,7 @@ namespace RyGT
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
             // Shader cache size (GPU.driver_cache_gb, GPU.driver_cache_unlimited; the game gets it as
-            // RYGT_DRIVER_CACHE_MAX_MB): the renderer's saved GPU shader cache, like NVIDIA's own
+            // SHARED_DRIVER_CACHE_MAX_MB): the renderer's saved GPU shader cache, like NVIDIA's own
             // setting. 0 turns it off; a bigger cache keeps more cars and tracks compiled, and is saved
             // less often as it grows (each save copies it whole).
             // The driver keeps it in RAM, a little more than the file; a file over the limit is not loaded.
@@ -2238,14 +2240,14 @@ namespace RyGT
             };
             // FIX-220: AMD GPUs only, off by default: shaders that read vertex values are interpolated
             // through KHR barycentrics (GPU.amd_graphics_fix, the game gets it as
-            // RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC). It fixes some AMD rendering glitches but makes shader
+            // SHARED_AMD_SINGLE_SAMPLE_BARYCENTRIC). It fixes some AMD rendering glitches but makes shader
             // loading slower; other GPUs ignore it.
             AddOption(graphics, "AMD graphics fix (AMD GPUs only; slower shader loading)", "GPU", "amd_graphics_fix", false);
             // A tester's RX 6000 series card crashed loading into races with it on (2026-10-30).
             graphics.Controls.Add(Hint("Can crash RX 6000 series GPUs when loading into a race. If the game crashes when a race loads, turn this off."));
-            // PERF-GT7-111/117: shader pre-translation (RYGT_MANIFEST_RECORD / RYGT_MANIFEST_PRETRANSLATE).
+            // PERF-GT7-111/117: shader pre-translation (SHADGT_MANIFEST_RECORD / SHADGT_MANIFEST_PRETRANSLATE).
             AddOption(graphics, "Rebuild translated shaders in the background after a renderer update (about 30 MB a track)", "GPU", "shader_pretranslate", false);
-            // PERF-GT7-108: the compile pack (RYGT_COMPILE_PACK).
+            // PERF-GT7-108: the compile pack (SHADGT_COMPILE_PACK).
             AddOption(graphics, "Compile the shaders already seen on this PC at start, after a driver update (background, pauses in races)", "GPU", "compile_pack", false);
             fpsLock.SelectedIndexChanged += delegate
             {
@@ -2401,6 +2403,7 @@ namespace RyGT
             {
                 ActiveControl = play.Enabled ? (Control)play : gear;
                 if (ReadSetting("Launcher", "check_updates", true)) CheckForUpdate(false);
+                BeginInvoke((MethodInvoker)PromptObsoleteSettings); // FEAT-GTS-260, once the window is up
             };
             RefreshState();
             var stateTimer = new System.Windows.Forms.Timer { Interval = 1000 };
@@ -3184,6 +3187,40 @@ namespace RyGT
                                     "No GitHub account is needed. Your game, saves, settings and caches are never touched."));
         }
 
+        // FEAT-GTS-260 (from RyGTS FEAT-GTS-469): offers to rename the Advanced page's switches saved under a
+        // name the installed build no longer reads (RYGT_PARALLEL_WORKERS, now SHADGT_PARALLEL_WORKERS).
+        // "Don't show again" is kept in RyGT7.ini (prompt_obsolete). Reading the modules takes a moment,
+        // so it runs off the window's thread.
+        void PromptObsoleteSettings()
+        {
+            if (!settings.PromptObsolete) return;
+            var saved = CustomEnvironment.Copy(settings.Env);
+            if (!SwitchWalker.HasSwitchNames(saved)) return;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                var renames = SwitchWalker.FindRenames(saved, SwitchWalker.KnownNames(root));
+                if (renames.Count == 0) return;
+                try { BeginInvoke((Action)delegate { AskObsoleteSettings(renames); }); }
+                catch (InvalidOperationException) { } // closed meanwhile
+            });
+        }
+
+        void AskObsoleteSettings(List<KeyValuePair<string, string>> renames)
+        {
+            using (var dialog = new ObsoleteSettingsDialog(renames.Select(r => r.Key + " - renamed to " + r.Value).ToList(), true))
+            {
+                var answer = dialog.ShowDialog(this);
+                if (dialog.DontShowAgain)
+                {
+                    settings.PromptObsolete = false;
+                    try { settings.Save(); } catch { }
+                }
+                if (answer != DialogResult.Yes) return;
+            }
+            try { if (SwitchWalker.Rename(settings.Env, renames) > 0) settings.Save(); }
+            catch (Exception e) { MessageBox.Show(this, "Could not rename the switches: " + e.Message); }
+        }
+
         CheckBox AddOption(TableLayoutPanel panel, string text, string sectionName, string key, bool fallback)
         {
             var box = new ToggleRow { Text = text, Checked = ReadSetting(sectionName, key, fallback) };
@@ -3219,7 +3256,7 @@ namespace RyGT
             return null;
         }
 
-        /// The shader cache limit in MB for RYGT_DRIVER_CACHE_MAX_MB: -1 unlimited, 0 off, 2 GB unless set.
+        /// The shader cache limit in MB for SHARED_DRIVER_CACHE_MAX_MB: -1 unlimited, 0 off, 2 GB unless set.
         static long DriverCacheMaxMb(string root)
         {
             if (GpuSetting(root, "driver_cache_unlimited") is bool && (bool)GpuSetting(root, "driver_cache_unlimited")) return -1;
@@ -4037,15 +4074,15 @@ namespace RyGT
                         // PERF-161: GT7's per-frame memory (0x200000000-0x208000000), which the CPU rewrites
                         // every frame and a few compute passes write too, stays in guest memory: kept in a
                         // renderer region, each CPU write faulted (about 60,000 a second) and was copied in.
-                        start.EnvironmentVariables["RYGT_NATIVE_INPLACE_RANGES"] = "1020000000+1de000,1020235000+1dd000,1020407000+b000,200000000+8000000";
+                        start.EnvironmentVariables["SHARED_NATIVE_INPLACE_RANGES"] = "1020000000+1de000,1020235000+1dd000,1020407000+b000,200000000+8000000";
                         // FIX-213: GT7 reads back what the GPU writes into its CPU pools from 0xe000000000
                         // up (GT Sport's are above 0xf000000000, the renderer's default); kept in a
                         // renderer region, the CPU saw stale data and culled the whole rear-view mirror.
-                        start.EnvironmentVariables["RYGT_NATIVE_INPLACE_FROM"] = "e000000000";
-                        start.EnvironmentVariables["SHADGT_FPS_LOCK"] = RaceFpsLock(root).ToString();
+                        start.EnvironmentVariables["SHARED_NATIVE_INPLACE_FROM"] = "e000000000";
+                        start.EnvironmentVariables["SHARED_FPS_LOCK"] = RaceFpsLock(root).ToString();
                         // Shader cache size and the AMD graphics fix from the Graphics page.
-                        start.EnvironmentVariables["RYGT_DRIVER_CACHE_MAX_MB"] = DriverCacheMaxMb(root).ToString();
-                        start.EnvironmentVariables["RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC"] =
+                        start.EnvironmentVariables["SHARED_DRIVER_CACHE_MAX_MB"] = DriverCacheMaxMb(root).ToString();
+                        start.EnvironmentVariables["SHARED_AMD_SINGLE_SAMPLE_BARYCENTRIC"] =
                             GpuSetting(root, "amd_graphics_fix") is bool && (bool)GpuSetting(root, "amd_graphics_fix") ? "1" : "0";
                         // PERF-GT7-111/117 from the Graphics page: each shader translation leaves a record
                         // (shaders\<serial>.manifest) and its code (shaders\<serial>.capture, this PC's only);
@@ -4055,24 +4092,24 @@ namespace RyGT
                         // sets them itself keeps its setting.
                         if (GpuSetting(root, "shader_pretranslate") is bool && (bool)GpuSetting(root, "shader_pretranslate"))
                         {
-                            start.EnvironmentVariables["RYGT_MANIFEST_RECORD"] = "1";
-                            start.EnvironmentVariables["RYGT_MANIFEST_PRETRANSLATE"] = "1";
+                            start.EnvironmentVariables["SHADGT_MANIFEST_RECORD"] = "1";
+                            start.EnvironmentVariables["SHADGT_MANIFEST_PRETRANSLATE"] = "1";
                         }
                         // PERF-GT7-108 from the Graphics page: the pipelines this PC's driver cache lacks (after
                         // a driver update) are compiled at start from the recipes kept in the compile pack.
                         // Only when checked: Jouer-Compile-Pack.cmd sets it itself before starting this launcher.
                         if (GpuSetting(root, "compile_pack") is bool && (bool)GpuSetting(root, "compile_pack"))
-                            start.EnvironmentVariables["RYGT_COMPILE_PACK"] = "1";
+                            start.EnvironmentVariables["SHADGT_COMPILE_PACK"] = "1";
                         // DLSS frame multiplier from the Graphics page (generated frames, 1-5).
-                        start.EnvironmentVariables["RYGT_DLSSG_FRAMES"] = DlssgFrames(root).ToString();
+                        start.EnvironmentVariables["SHARED_DLSSG_FRAMES"] = DlssgFrames(root).ToString();
                         // Upscaling quality from the Graphics page (the size DLSS and FSR 3.1 scale to).
-                        start.EnvironmentVariables["RYGT_UPSCALE_QUALITY"] = GpuSetting(root, "upscale_quality") as string ?? "auto";
+                        start.EnvironmentVariables["SHARED_UPSCALE_QUALITY"] = GpuSetting(root, "upscale_quality") as string ?? "auto";
                         // Texture sharpness from the Graphics page (detail levels added to every sampler's bias).
-                        start.EnvironmentVariables["RYGT_TEXTURE_LOD_BIAS"] = GpuSetting(root, "texture_lod_bias") as string ?? "0";
+                        start.EnvironmentVariables["SHARED_TEXTURE_LOD_BIAS"] = GpuSetting(root, "texture_lod_bias") as string ?? "0";
                         // PS4 Pro mode from the Graphics page (NEO-GT7). PS4 (off) sets nothing, so a launcher
                         // script's own values stay. The other modes set or remove all three variables themselves:
-                        // RYGT_NEO=1 with the checkerboard (4K TV, Full, Custom with its box), plus RYGT_NEO_TV=1080
-                        // for the 1080p TV; RYGT_NEO_EXTRAS lists the five other settings when they differ from what
+                        // SHARED_NEO=1 with the checkerboard (4K TV, Full, Custom with its box), plus SHADGT_NEO_TV=1080
+                        // for the 1080p TV; SHADGT_NEO_EXTRAS lists the five other settings when they differ from what
                         // the game picks by itself (none in the PS4 and 4K TV presets, all five in the 1080p TV one).
                         // The modes other than custom are read as the console has them, not from the boxes.
                         string proSetting = GpuSetting(root, "ps4_pro_mode") as string ?? "off";
@@ -4082,10 +4119,10 @@ namespace RyGT
                             bool custom = proSetting == "custom";
                             bool tv1080 = proSetting == "1080p";
                             bool neo = tv1080 || (custom ? proBox("ps4_pro_checkerboard") : true);
-                            if (neo) start.EnvironmentVariables["RYGT_NEO"] = "1";
-                            else start.EnvironmentVariables.Remove("RYGT_NEO");
-                            if (tv1080) start.EnvironmentVariables["RYGT_NEO_TV"] = "1080";
-                            else start.EnvironmentVariables.Remove("RYGT_NEO_TV");
+                            if (neo) start.EnvironmentVariables["SHARED_NEO"] = "1";
+                            else start.EnvironmentVariables.Remove("SHARED_NEO");
+                            if (tv1080) start.EnvironmentVariables["SHADGT_NEO_TV"] = "1080";
+                            else start.EnvironmentVariables.Remove("SHADGT_NEO_TV");
                             var proOptionsOn = new List<string>();
                             var proOptionNames = new[] { "ps4_pro_blur", "blur", "ps4_pro_replays60", "replays60",
                                                          "ps4_pro_replay_blur", "replayblur", "ps4_pro_garage60", "garage60",
@@ -4095,8 +4132,8 @@ namespace RyGT
                                 bool on = custom ? proBox(proOptionNames[i]) : proSetting == "full";
                                 if (on) proOptionsOn.Add(proOptionNames[i + 1]);
                             }
-                            if (proOptionsOn.Count != 0) start.EnvironmentVariables["RYGT_NEO_EXTRAS"] = string.Join(",", proOptionsOn);
-                            else start.EnvironmentVariables.Remove("RYGT_NEO_EXTRAS");
+                            if (proOptionsOn.Count != 0) start.EnvironmentVariables["SHADGT_NEO_EXTRAS"] = string.Join(",", proOptionsOn);
+                            else start.EnvironmentVariables.Remove("SHADGT_NEO_EXTRAS");
                         }
                         // FEAT-GTS-254: the Advanced page's switches and other variables last, so they win.
                         int customCount = CustomEnvironment.Apply(start, new Settings(Path.Combine(root, "RyGT7.ini")).Env);

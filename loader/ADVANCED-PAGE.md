@@ -3,7 +3,7 @@
 Ported from the RyGTS launcher (FEAT-GTS-433..467). In ryGT7 the page is last in the settings sidebar,
 and it is hidden until About > Logging > "Show the Advanced page" is turned on.
 
-The Advanced page lists the experimental `RYGT_*` and `SHADGT_*` switches of the installed renderer and sets them
+The Advanced page lists the experimental `SHADGT_*` (renderer), `RYGT_*` (runtime) and `SHARED_*` (both) switches of the installed build and sets them
 for `GT7.exe` when the launcher starts it.
 
 ## Where the list comes from
@@ -21,18 +21,25 @@ Nothing is listed in the launcher. When the launcher starts it reads `libs\libSc
 
 A switch the renderer reads but does not describe is listed under "Not described in this renderer
 build". A description without a matching name (for example a switch only a diagnostics build reads)
-is not listed. Switches the launcher always sets from its own settings (`RYGT_LOG_DIRECTORY`, `SHADGT_FPS_LOCK`,
-`RYGT_DLSSG_FRAMES`, `RYGT_UPSCALE_QUALITY`, `RYGT_TEXTURE_LOD_BIAS`, `RYGT_DRIVER_CACHE_MAX_MB`, ...) are left out.
+is not listed. Switches the launcher always sets from its own settings (`RYGT_LOG_DIRECTORY`, `SHARED_FPS_LOCK`,
+`SHARED_DLSSG_FRAMES`, `SHARED_UPSCALE_QUALITY`, `SHARED_TEXTURE_LOD_BIAS`, `SHARED_DRIVER_CACHE_MAX_MB`, ...) are left out.
 
-Within a group, switches whose names share their first two words (`RYGT_PARALLEL_*`,
-`SHADGT_DIAG_*`) are one family row, closed at first (FEAT-GTS-259). The row shows how many switches the
+Within a group, switches whose names share their first two words (`SHADGT_PARALLEL_*`,
+`SHADGT_DIAG_*`) are one family row (named `SHADGT_PARALLEL`), closed at first (FEAT-GTS-259). The row shows how many switches the
 family holds and how many are changed; in each group the families come first, then the switches
 of no family. A click anywhere on it opens or closes it (Right and Left
-from the keyboard). When the family is named after a switch (`RYGT_NATIVE` for `RYGT_NATIVE_*`),
+from the keyboard). When the family is named after a switch (`SHADGT_NATIVE` for `RYGT_NATIVE_*`),
 that switch is the family row: its toggle (or value box) works as on any row, and a click elsewhere
 on the row opens the family. A family needs two switches; a lone `RYGT_X_Y` stays a plain row.
 Searching or "Only changed" opens the families with a match; sorting by a column lists every
 switch flat. Which families are open is kept over Refresh and Load.
+
+Switches are named after where they take effect (FEAT-GTS-260): `SHADGT_` for the renderer, `RYGT_` for the
+runtime, `SHARED_` for both; see `AGENTS.md`. When the launcher opens, switches saved under a name the installed build
+no longer reads but reads with another prefix (`RYGT_PARALLEL_WORKERS`, now `SHADGT_PARALLEL_WORKERS`)
+are listed in the obsolete-settings question ("Update obsolete settings?"): Yes renames them, No
+keeps them (the game ignores them), "Don't show again" stops the question (`prompt_obsolete=0`).
+A profile saved before the rename gets the new names when it is loaded.
 
 "Diagnostics & tracing" switches are hidden until "Show diagnostics and tracing" is ticked (changed
 ones always show). Search matches names and descriptions; "Only changed" shows what is set; Reset all
