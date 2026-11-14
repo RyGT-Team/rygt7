@@ -24,6 +24,15 @@ build". A description without a matching name (for example a switch only a diagn
 is not listed. Switches the launcher always sets from its own settings (`RYGT_LOG_DIRECTORY`, `SHADGT_FPS_LOCK`,
 `RYGT_DLSSG_FRAMES`, `RYGT_UPSCALE_QUALITY`, `RYGT_TEXTURE_LOD_BIAS`, `RYGT_DRIVER_CACHE_MAX_MB`, ...) are left out.
 
+Within a group, switches whose names share their first two words (`RYGT_PARALLEL_*`,
+`SHADGT_DIAG_*`) are one family row, closed at first (FEAT-GTS-259). The row shows how many switches the
+family holds and how many are changed; a click anywhere on it opens or closes it (Right and Left
+from the keyboard). When the family is named after a switch (`RYGT_NATIVE` for `RYGT_NATIVE_*`),
+that switch is the family row: its toggle (or value box) works as on any row, and a click elsewhere
+on the row opens the family. A family needs two switches; a lone `RYGT_X_Y` stays a plain row.
+Searching or "Only changed" opens the families with a match; sorting by a column lists every
+switch flat. Which families are open is kept over Refresh and Load.
+
 "Diagnostics & tracing" switches are hidden until "Show diagnostics and tracing" is ticked (changed
 ones always show). Search matches names and descriptions; "Only changed" shows what is set; Reset all
 returns every switch to its default. Delete on a setting returns it to the default.
