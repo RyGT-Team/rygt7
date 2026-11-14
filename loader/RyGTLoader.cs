@@ -2312,9 +2312,12 @@ namespace RyGT
             aboutPage.Controls.Add(new Label
             {
                 AutoSize = true, MaximumSize = new Size(860, 0), ForeColor = Dark.DimText, Tag = "heading", Margin = new Padding(1, 0, 0, 6),
-                Text = "ryGT7 converts your own copy of Gran Turismo 7 to run on Windows. " +
-                       "It is a fan project, not affiliated with Sony Interactive Entertainment or Polyphony Digital; " +
-                       "Gran Turismo is their trademark. You need your own copy of the game."
+                // FEAT-GTS-258: the copyright and trademark notice.
+                Text = "ryGT7 converts your own copy of Gran Turismo 7 to run on Windows. You need your own copy of the game." +
+                       Environment.NewLine + Environment.NewLine +
+                       "Copyright \u00A9 2026 RyGT-Team." + Environment.NewLine +
+                       "Gran Turismo is a trademark of Sony Interactive Entertainment. " +
+                       "This project is independent of Sony and Polyphony Digital."
             });
             var folders = Section(aboutPage, "Folders");
             folders.Controls.Add(OpenRow("The ryGT7 folder", OpenFolder, "Open folder"));

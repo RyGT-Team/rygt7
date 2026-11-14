@@ -6,6 +6,12 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.1.6 - 2026-11-13
+
+* FEAT-GTS-258: Settings > About shows the copyright notice ("Copyright © 2026 RyGT-Team.") and
+  "Gran Turismo is a trademark of Sony Interactive Entertainment. This project is independent of
+  Sony and Polyphony Digital."
+
 ## 0.1.5 - 2026-11-13
 
 * FEAT-GTS-257: Three update channels (Settings > Display > "Update channel"): Stable (the
