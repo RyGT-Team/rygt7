@@ -48,6 +48,8 @@ namespace RyGT
             "RYGT_LOG_DIRECTORY", "RYGT_NATIVE_INPLACE_RANGES", "RYGT_NATIVE_INPLACE_FROM", "SHADGT_FPS_LOCK",
             "RYGT_DRIVER_CACHE_MAX_MB", "RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC", "RYGT_DLSSG_FRAMES",
             "RYGT_UPSCALE_QUALITY", "RYGT_TEXTURE_LOD_BIAS",
+            // The Graphics page's DLSS "Texture detail" (FEAT-GT7-181) sets these for Reduced and Off.
+            "RYGT_DLSS_TEMPORAL_MIP_BIAS", "RYGT_DLSS_TEMPORAL_MIP_EXTRA",
             // PS4 Pro mode on the Graphics page (NEO-GT7, #33) sets or removes these itself; set here they
             // would silently override it.
             "RYGT_NEO", "RYGT_NEO_TV", "RYGT_NEO_EXTRAS"

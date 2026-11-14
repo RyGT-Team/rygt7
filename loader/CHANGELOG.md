@@ -6,6 +6,15 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.1.5 - 2026-11-14
+
+* FEAT-GT7-181: Graphics page, Upscaling. With NVIDIA DLSS, a "Texture detail" list sets how much finer the
+  renderer's temporal DLSS reads the game's textures: Full (the default: as much as DLSS enlarges the picture
+  plus one level, as NVIDIA advises, so 2 levels to 3840 x 2160 and about 1.4 to 2560 x 1440), Reduced (one
+  level less) or Off. The note gives the amount for the chosen quality. The row only shows with NVIDIA DLSS
+  through Streamline, no frame generation, and an installed renderer that has the setting; it applies at the
+  next game start.
+
 ## 0.1.4 - 2026-11-14
 
 * FEAT-GT7-180: Graphics page. NVIDIA DLSS and the PS4 Pro 3200 x 1800 picture can no longer be turned on
