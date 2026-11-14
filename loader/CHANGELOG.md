@@ -6,6 +6,13 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.1.6 - 2026-11-14
+
+* FEAT-GT7-183: Shaders page, new "Shader manifest" section. The shader pre-translation option
+  (`GPU.shader_pretranslate`, PERF-GT7-111/117) moved there from the Graphics page, with a note on what it
+  does: each translated shader leaves a record in the shaders folder, and after a renderer update the shaders
+  the store lacks are translated again in the background at start. Same setting and default (off).
+
 ## 0.1.5 - 2026-11-14
 
 * FEAT-GT7-181: Graphics page, Upscaling. With NVIDIA DLSS, a "Texture detail" list sets how much finer the
