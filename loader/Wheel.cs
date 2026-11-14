@@ -64,8 +64,8 @@ namespace RyGT
 
         // The wheel models the game can be told it has (ryty-wheel.ini "Present"); the game
         // uses that model's own force feedback driver.
-        public static readonly string[] PresentNames = { "Fanatec direct drive (recommended)", "Logitech G29" };
-        static readonly string[] PresentIds = { "0eb7:0e05", "046d:c24f" };
+        public static readonly string[] PresentNames = { "Fanatec direct drive (recommended)", "Logitech G29", "Thrustmaster T300RS (experimental)" };
+        static readonly string[] PresentIds = { "0eb7:0e05", "046d:c24f", "044f:b66d" };
 
         // ryty-wheel.ini's settings.
         public int Rotation = 900, Gain = 100, Damping = 10, Detail = 0, Present;

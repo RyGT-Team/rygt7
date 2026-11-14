@@ -320,6 +320,19 @@ int APS5_VABI scePadReadStateExt(int handle, PadData* data) {
  std::memset(data, 0, sizeof(*data));
  data->buttons = wheel.buttons;
  data->left_stick_x = data->left_stick_y = data->right_stick_x = data->right_stick_y = 128;
+ if (Pad::Wheel().IsT300()) {
+  static_assert(offsetof(PadData, device_unique_data) == 0x6c);
+  const std::uint16_t axes[] = {
+   static_cast<std::uint16_t>(std::clamp(wheel.steering + 32768, 0, 65535)),
+   static_cast<std::uint16_t>(65535 - wheel.throttle),
+   static_cast<std::uint16_t>(65535 - wheel.brake),
+   static_cast<std::uint16_t>(65535 - wheel.clutch)
+  };
+  data->device_unique_data_len = 12;
+  std::memcpy(data->device_unique_data, axes, sizeof(axes));
+  data->device_unique_data[9] = 0xff;
+  data->device_unique_data[10] = 0xff;
+ }
  if (Pad::Wheel().IsFanatec()) {
   // A Fanatec base reports its wheel in the pad data's device-unique block, which GT Sport's
   // Fanatec port reads in a race (eboot 0x1c38174): steering (16 bits, centre 0x8000), then
@@ -362,6 +375,12 @@ int APS5_VABI scePadReadExt(int handle, PadData* data, int num) {
 // feedback as report 0x30, a report-id byte followed by Logitech classic 8-byte commands; the
 // Fanatec SDK sends one 7-byte command per report 0x30 (0x34 for some).
 int APS5_VABI scePadOutputReport(std::uint64_t a, std::uint64_t b, std::uint64_t c, std::uint64_t d) {
+ if (Pad::Wheel().IsT300() && static_cast<int>(a) == PAD_WHEEL_HANDLE) {
+  if (c > 0x10000 && d >= 2 && d <= 64 && Pad::Readable(reinterpret_cast<const void*>(c), d))
+   Pad::WheelReport(reinterpret_cast<const std::uint8_t*>(c), static_cast<std::size_t>(d));
+  return PAD_OK;
+ }
+
  if (static_cast<int>(a) == PAD_WHEEL_HANDLE && (b == 0x30 || b == 0x34) && c > 0x10000 && d >= 2 && d <= 64 && Pad::Readable(reinterpret_cast<const void*>(c), d)) {
   Pad::WheelReport(reinterpret_cast<const std::uint8_t*>(c), static_cast<std::size_t>(d));
  }
