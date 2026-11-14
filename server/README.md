@@ -60,7 +60,7 @@ The settings live in `RyGT.ini` next to `GTSport.exe`. Environment variables ove
 | --- | --- | --- |
 | `online=1` | `RYGT_ONLINE` | off |
 | `online_id=Name` | `RYGT_ONLINE_ID` | `RyGTPlayer` |
-| `online_server=host:port` | `RYGT_ONLINE_SERVER` | `127.0.0.1:7890` |
+| `online_server=host:port` | `SHARED_ONLINE_SERVER` | `127.0.0.1:7890` |
 
 ## Server options
 

@@ -81,7 +81,7 @@ Options (RyGT7.exe)
 
 Crash reports (GPU device lost)
   If the game stops with an NVIDIA device loss, start the launcher from a command prompt
-  after "set RYGT_DEVICE_FAULT=1" (for that launch only). The log in user\log then
+  after "set SHADGT_DEVICE_FAULT=1" (for that launch only). The log in user\log then
   ends with DIAG-243 lines (the driver's fault report and the last draws); please attach
   that log to the report. Without the variable nothing changes.
 

@@ -339,7 +339,7 @@ int APS5_VABI sceKernelIsTrinityMode(void) {
     return 0;
 }
 
-// RYGT_NEO=1 runs the title in its PS4 Pro (Neo) mode: GT7 then draws 3200x1800 (3840x2160 with its
+// SHARED_NEO=1 runs the title in its PS4 Pro (Neo) mode: GT7 then draws 3200x1800 (3840x2160 with its
 // game argument 2160p=1) when the video port reports a TV above 1080p. Off by default (base PS4).
 // The renderer (libSceVideoOut.prx) asks this export too, so one switch sets both. The answer is
 // read once: titles cache it, and it must never change while they run. A renderer that cannot draw
@@ -347,7 +347,7 @@ int APS5_VABI sceKernelIsTrinityMode(void) {
 // the Pro mode on it ends in a black screen and a lost GPU.
 int APS5_VABI sceKernelIsNeoMode(void) {
     static const int neo = [] {
-        const char* value = std::getenv("RYGT_NEO");
+        const char* value = std::getenv("SHARED_NEO");
         if (value == nullptr || value[0] != '1' || value[1] != '\0') return 0;
 #ifdef _WIN32
         // The renderer loads before the game starts; if it is not there yet, the switch decides.
@@ -356,7 +356,7 @@ int APS5_VABI sceKernelIsNeoMode(void) {
             const auto supported = reinterpret_cast<SupportedFn>(
                 reinterpret_cast<void*>(GetProcAddress(renderer, "RytyGpuNeoSupported")));
             if (supported == nullptr || supported() < 1) {
-                std::fprintf(stderr, "[neo] RYGT_NEO=1 ignored: this renderer has no PS4 Pro mode "
+                std::fprintf(stderr, "[neo] SHARED_NEO=1 ignored: this renderer has no PS4 Pro mode "
                                      "(no RytyGpuNeoSupported), base PS4 mode\n");
                 return 0;
             }
@@ -364,7 +364,7 @@ int APS5_VABI sceKernelIsNeoMode(void) {
             std::fprintf(stderr, "[neo] renderer not loaded yet: PS4 Pro mode not checked\n");
         }
 #endif
-        std::fprintf(stderr, "[neo] RYGT_NEO=1: sceKernelIsNeoMode answers 1 (PS4 Pro mode)\n");
+        std::fprintf(stderr, "[neo] SHARED_NEO=1: sceKernelIsNeoMode answers 1 (PS4 Pro mode)\n");
         return 1;
     }();
     return neo;

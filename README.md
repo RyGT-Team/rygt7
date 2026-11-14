@@ -194,10 +194,10 @@ built from an older renderer pin lacks the ultrawide HUD, DLSS frame multiplier 
   (Race frame rate), experimental: races then hold 60 in quiet sections and run at about 35–48 FPS
   when the field is busy, and those uneven frame times can look less smooth than an even 30.
   Frame generation in the launcher multiplies what you see on screen.
-- **Fast flips** (optional): set the Windows environment variable `RYGT_FAST_FLIPS=1` and each
+- **Fast flips** (optional): set the Windows environment variable `SHADGT_FAST_FLIPS=1` and each
   frame goes on screen as soon as it is ready instead of waiting for the next 60 Hz tick (about
   0.6 ms instead of up to 17 ms), which evens out frame times below 60 FPS. In a command prompt:
-  `setx RYGT_FAST_FLIPS 1`, then reopen the launcher.
+  `setx SHADGT_FAST_FLIPS 1`, then reopen the launcher.
 
 ### DLSS frame generation (NVIDIA RTX 40 / 50)
 
@@ -245,8 +245,8 @@ Tips:
   than overlap; fixing that needs changes deep in the renderer.
 - The known problems in the release notes still apply (occasional crashes, NVIDIA device loss,
   replay shot glitches). Online play's limits are under [Online play](#online-play). For a device
-  loss report, launch once with the environment variable `RYGT_DEVICE_FAULT=1` (in a command prompt:
-  `set RYGT_DEVICE_FAULT=1`, then start `RyGT7.exe` from it) and attach the log; its DIAG-243 lines
+  loss report, launch once with the environment variable `SHADGT_DEVICE_FAULT=1` (in a command prompt:
+  `set SHADGT_DEVICE_FAULT=1`, then start `RyGT7.exe` from it) and attach the log; its DIAG-243 lines
   show the driver's fault report and the last draws.
 
 ## Source and builds

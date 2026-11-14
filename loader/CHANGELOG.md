@@ -6,6 +6,63 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.1.8 - 2026-11-13
+
+* FEAT-GTS-263: The Advanced page's headers (Renderer, Renderer and runtime, Runtime) and group subheaders
+  close and open with a click (or Left, Right and Space), an arrow showing which. They start open;
+  searching or "Only changed" shows the matches under closed ones, and Refresh and Load keep them.
+* FEAT-GTS-262: The Advanced page splits the switches under a header row per prefix: Renderer (SHADGT_),
+  Renderer and runtime (SHARED_), Runtime (RYGT_), each over its groups. Its count line names the
+  renderer build by its git describe (shadgt7 FEAT-GT7-177) instead of the file's date, which stays for older builds.
+* FEAT-GTS-261: On the Advanced page, a switch that takes only a fixed set of values (kind `choice` in
+  the renderer's table, shadgt7 FEAT-GT7-176) is a dropdown instead of a text box where other values were
+  ignored: Default, then each value with its meaning. It is saved as soon as a value is picked.
+* FEAT-GTS-260: Switches are named after where they take effect: SHADGT_ for the renderer, RYGT_ for
+  the runtime, SHARED_ for both (shadgt7 FEAT-GT7-175). The launcher sets and lists the new names (the
+  Advanced page also finds SHARED_ switches). At start, switches saved under an old name the
+  installed build no longer reads are listed in the obsolete-settings question ("Update obsolete
+  settings?"): Yes renames them, No keeps them. A profile saved before loads with the new names.
+  Family rows show the family's name without "_*".
+
+## 0.1.7 - 2026-11-13
+
+* FEAT-GTS-259: On the Advanced page, switches of a group whose names share their first two words
+  (RYGT_PARALLEL_*, RYGT_NATIVE_*, SHADGT_DIAG_*, ...) sit under one family row, closed at first,
+  instead of scattered through the list; in each group the families come first, then the other
+  switches. The row shows how many switches it holds and how many are
+  changed; a click anywhere on it opens or closes it, except on the row's own switch when the
+  family is named after one (RYGT_NATIVE), which still flips as usual. Right and Left open and
+  close it from the keyboard. Searching or "Only changed" opens the families with a match, and a
+  column sort lists every switch flat.
+
+## 0.1.6 - 2026-11-13
+
+* FEAT-GTS-258: Settings > About shows the copyright notice ("Copyright © 2026 RyGT-Team.") and
+  "Gran Turismo is a trademark of Sony Interactive Entertainment. This project is independent of
+  Sony and Polyphony Digital."
+
+## 0.1.5 - 2026-11-13
+
+* FEAT-GTS-257: Three update channels (Settings > Display > "Update channel"): Stable (the
+  default), the newest GitHub release; Prerelease, the newest release or prerelease; and Nightly,
+  the newest successful build of main. Releases now come from GitHub instead of GitLab. Nightlies
+  are downloaded through nightly.link (GitHub's own artifact download needs a signed-in account),
+  checked against their SHA-256 and manifest, and installed like a release, with Roll back.
+  Changing the channel checks it right away.
+
+## 0.1.4 - 2026-11-13
+
+* FEAT-GTS-256: The Advanced page also lists the runtime's switches (libkernel, libc, libScePad,
+  libSceNet, libSceUserService, ...): it reads every `libs\*.prx`, not only the renderer, including
+  names the runtime reads as UTF-16 (`RYGT_USER_NAME`, `RYGT_APP0_LAYERS`). Their descriptions come
+  from shadgt7's table like the renderer's. The page is built the first time it is opened, so the
+  launcher starts as fast as before (from RyGTS FEAT-GTS-271).
+
+* FEAT-GTS-255: Profiles on the Advanced page (from RyGTS FEAT-GTS-270). A dropdown of saved
+  profiles with Save and Load next to it: Save keeps the current switches and other variables under
+  a name (`launcher\profiles\<name>.ini`, the same `env=` lines as `RyGT7.ini`), Load replaces them
+  with a profile's, to swap between configurations instead of tracking several similar switches.
+
 ## 0.1.3 - 2026-11-13
 
 * FEAT-GT7-161: Photos the game's gallery exports (Export on a Scapes or race photo) are written as
