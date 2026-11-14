@@ -8,6 +8,9 @@ CI fails when the two disagree.
 
 ## 0.1.8 - 2026-11-13
 
+* FEAT-GTS-261: On the Advanced page, a switch that takes only a fixed set of values (kind `choice` in
+  the renderer's table, shadgt7 FEAT-GT7-176) is a dropdown instead of a text box where other values were
+  ignored: Default, then each value with its meaning. It is saved as soon as a value is picked.
 * FEAT-GTS-260: Switches are named after where they take effect: SHADGT_ for the renderer, RYGT_ for
   the runtime, SHARED_ for both (shadgt7 FEAT-GT7-175). The launcher sets and lists the new names (the
   Advanced page also finds SHARED_ switches). At start, switches saved under an old name the
