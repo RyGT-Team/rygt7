@@ -2379,8 +2379,6 @@ namespace RyGT
             AddOption(graphics, "AMD graphics fix (AMD GPUs only; slower shader loading)", "GPU", "amd_graphics_fix", false);
             // A tester's RX 6000 series card crashed loading into races with it on (2026-10-30).
             graphics.Controls.Add(Hint("Can crash RX 6000 series GPUs when loading into a race. If the game crashes when a race loads, turn this off."));
-            // PERF-GT7-111/117: shader pre-translation (RYGT_MANIFEST_RECORD / RYGT_MANIFEST_PRETRANSLATE).
-            AddOption(graphics, "Rebuild translated shaders in the background after a renderer update (about 30 MB a track)", "GPU", "shader_pretranslate", false);
             // PERF-GT7-108: the compile pack (RYGT_COMPILE_PACK).
             AddOption(graphics, "Compile the shaders already seen on this PC at start, after a driver update (background, pauses in races)", "GPU", "compile_pack", false);
             fpsLock.SelectedIndexChanged += delegate
@@ -2428,6 +2426,14 @@ namespace RyGT
                 try { WriteSetting("GPU", "compile_mode", mode.SelectedIndex); }
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
+            // FEAT-GT7-183: the shader manifest (PERF-GT7-111/117: RYGT_MANIFEST_RECORD /
+            // RYGT_MANIFEST_PRETRANSLATE), moved here from the Graphics page; same GPU.shader_pretranslate key.
+            var manifest = Section(shadersPage, "Shader manifest");
+            AddOption(manifest, "Keep a shader manifest and rebuild translated shaders in the background after a renderer update",
+                      "GPU", "shader_pretranslate", false);
+            manifest.Controls.Add(Hint("Each translated shader leaves a record in the shaders folder (about 30 MB a track). " +
+                                       "After a renderer update, the shaders the store no longer has are translated again at start, " +
+                                       "so the first races start like warm ones. Off by default; applies the next time you play."));
 
 
             // ---- Controls: the controller, keyboard and wheel, drawn (ControlsPage); the controller
@@ -4149,7 +4155,7 @@ namespace RyGT
                         start.EnvironmentVariables["RYGT_DRIVER_CACHE_MAX_MB"] = DriverCacheMaxMb(root).ToString();
                         start.EnvironmentVariables["RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC"] =
                             GpuSetting(root, "amd_graphics_fix") is bool && (bool)GpuSetting(root, "amd_graphics_fix") ? "1" : "0";
-                        // PERF-GT7-111/117 from the Graphics page: each shader translation leaves a record
+                        // PERF-GT7-111/117 from the Shaders page (FEAT-GT7-183): each shader translation leaves a record
                         // (shaders\<serial>.manifest) and its code (shaders\<serial>.capture, this PC's only);
                         // at start, the ones the shader store lacks (after a renderer update) are translated
                         // again in the background, so the races after an update start as warm ones.
