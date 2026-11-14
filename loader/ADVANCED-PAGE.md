@@ -26,7 +26,8 @@ is not listed. Switches the launcher always sets from its own settings (`RYGT_LO
 
 Within a group, switches whose names share their first two words (`RYGT_PARALLEL_*`,
 `SHADGT_DIAG_*`) are one family row, closed at first (FEAT-GTS-259). The row shows how many switches the
-family holds and how many are changed; a click anywhere on it opens or closes it (Right and Left
+family holds and how many are changed; in each group the families come first, then the switches
+of no family. A click anywhere on it opens or closes it (Right and Left
 from the keyboard). When the family is named after a switch (`RYGT_NATIVE` for `RYGT_NATIVE_*`),
 that switch is the family row: its toggle (or value box) works as on any row, and a click elsewhere
 on the row opens the family. A family needs two switches; a lone `RYGT_X_Y` stays a plain row.
