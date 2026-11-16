@@ -1122,6 +1122,7 @@ namespace RyGT
             present.SelectedIndex = Math.Max(0, Math.Min(Wheel.PresentNames.Length - 1, wheel.Present));
             present.SelectedIndexChanged += delegate { wheel.Present = present.SelectedIndex; SaveWheel(); };
             wheelExtras.Controls.Add(new SettingRow("Game sees", present));
+            wheelExtras.Controls.Add(Note("For the experimental T300RS profile, keep the physical wheel in PS3/PC mode."));
             wheelExtras.Controls.Add(Note("The wheel model the game is told it has; it uses that model's force feedback."));
             var padIsWheel = new ToggleRow { Text = "Pad reports as the wheel (experimental)", Checked = wheel.PadIsWheel };
             padIsWheel.CheckedChanged += delegate { wheel.PadIsWheel = padIsWheel.Checked; SaveWheel(); };

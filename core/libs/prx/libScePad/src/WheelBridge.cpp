@@ -23,6 +23,7 @@
 #include "SDL.h"
 #include "prx/libScePad/include/InputMapping.hpp"
 #include "prx/libScePad/include/WheelInput.hpp"
+#include "prx/libScePad/include/T300Protocol.hpp"
 #include "prx/libc/include/General.hpp"
 
 namespace {
@@ -41,6 +42,14 @@ struct ForceSlot {
     std::uint8_t parameters[6]{};
 };
 std::mutex forceMutex;
+T300Protocol t300;
+std::uint64_t T300Time() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+WheelForces T300Forces() {
+    const auto f = t300.Decode(T300Time());
+    return {f.active, f.constant, f.spring, f.springCenter, f.springLimit, f.damper, f.friction};
+}
 ForceSlot forceSlots[4];
 bool autocenter = true;
 int commandsLogged = 0;
@@ -196,6 +205,10 @@ void wheelThread() {
         SDL_Event event;
         while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_JOYDEVICEADDED, SDL_JOYDEVICEREMOVED) > 0) input.HandleEvent(event);
         SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+        if (Pad::Wheel().IsT300()) {
+            std::lock_guard lock(forceMutex);
+            input.SetForces(T300Forces(), false);
+        }
         input.Update();
         ready.store(true);
         std::this_thread::sleep_for(std::chrono::milliseconds(4));
@@ -238,6 +251,16 @@ void SetWheelOpened(bool opened) {
 void WheelReport(const std::uint8_t* report, std::size_t length) {
     if (report == nullptr || length < 2) return;
     std::lock_guard lock(forceMutex);
+    if (Wheel().IsT300()) {
+        const auto now = T300Time();
+        const bool handled = t300.Report(report, length, now);
+        const auto f = T300Forces();
+        if (handled) {
+            if (WheelInput* input = wheel.load())
+                input->SetForces(f, report[0] >= 0x31 && report[0] <= 0x39);
+        }
+        return;
+    }
     if (Wheel().IsFanatec()) {
         FanatecReport(report, length);
         return;
@@ -282,6 +305,7 @@ void WheelReport(const std::uint8_t* report, std::size_t length) {
 }
 
 bool WheelFeatureReport(int reportId, std::uint8_t* report, std::size_t length) {
+    if (Wheel().IsT300()) return T300Protocol::Feature(reportId, report, length);
     if (!Wheel().IsFanatec() || report == nullptr) return false;
     if (reportId == 0x33) {
         // The rim's extra inputs (analog paddles, dials, encoders), read while driving: all at

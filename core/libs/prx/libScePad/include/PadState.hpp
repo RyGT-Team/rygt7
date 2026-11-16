@@ -98,6 +98,7 @@ struct WheelSettings {
     // forces), or a Logitech G29 (046d:c24f).
     unsigned vendor = 0x0eb7;
     unsigned product = 0x0e05;
+    bool IsT300() const { return vendor == 0x044f && product == 0xb66d; }
     bool IsFanatec() const { return vendor == 0x0eb7; }
     int capability = 0;          // steering-wheel capability bits reported to the game
     int ffbGain = 100;           // force feedback strength in percent
