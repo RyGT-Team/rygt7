@@ -55,7 +55,7 @@ class PackageIntegration(unittest.TestCase):
             for n in assembler.RENDERER_LIBS:(root/'renderer'/n).write_bytes(b'renderer fixture')
             for n in assembler.STUB_LIBS:(root/'stubs'/n).write_bytes(b'stub fixture')
             for n in assembler.GCC_DLLS:(root/'ucrt/bin'/n).write_bytes(b'ucrt fixture')
-            for n in ('launcher.exe','converter.exe','probe.exe','ryGT_dlss.dll'):(root/n).write_bytes(b'fixture')
+            for n in ('launcher.exe','converter.exe','probe.exe','prewarmer.exe','ryGT_dlss.dll'):(root/n).write_bytes(b'fixture')
             (root/'dlss-sdk/LICENSE.txt').write_bytes(b'NVIDIA RTX SDKs LICENSE fixture')  # FEAT-GTS-269
             sdk=mock.patch.object(assembler,'DLSS_SDK',dict(assembler.DLSS_SDK,files=[{'path':'LICENSE.txt','sha256':assembler.sha(root/'dlss-sdk/LICENSE.txt')}]))
             sdk.start();self.addCleanup(sdk.stop)
@@ -65,12 +65,18 @@ class PackageIntegration(unittest.TestCase):
               renderer_fetch_url=validator.FETCHED,launcher=root/'launcher.exe',converter=root/'converter.exe',
               wheel_probe=root/'probe.exe',renderer_source=renderer_source,renderer_deps_source=root/'renderer/externals',deps_source=root/'deps',out=root/'out',
               name='RyGT7-ci-'+commit[:8],dlss_plugin=root/'ryGT_dlss.dll',dlss_sdk=root/'dlss-sdk')
+            if (source/'tools/ryty_prewarm/CMakeLists.txt').is_file():
+                args.prewarmer = root/'prewarmer.exe'
             assembler.assemble(args)
             info=json.loads(args.info.read_text());info['renderer_vma_patch']=assembler.verify_renderer(renderer_source)
             args.info.write_text(json.dumps(info),encoding='utf-8')
             assembler.package(args);validator.validate(root/'out',commit)
             archive=root/'out'/(args.name+'.zip')
             with zipfile.ZipFile(archive) as z:
+                if hasattr(args, 'prewarmer'):
+                    self.assertEqual(z.read(args.name+'/tools/ryty_prewarm.exe'), args.prewarmer.read_bytes())
+                    self.assertEqual(info['components']['prewarmer'],
+                                     {'sha256': assembler.sha(args.prewarmer), 'origin': 'rygt7-source-build'})
                 self.assertIn(args.name+'/licenses/RyGT7/3rdparty/fixture/LICENSES/nested/NOTICE.txt',z.namelist())
                 self.assertIn(args.name+'/licenses/shadGT7/externals/fixture/LICENSES/nested/NOTICE.txt',z.namelist())
                 self.assertEqual([n for n in z.namelist() if '/dlss/' in n],[args.name+'/dlss/ryGT_dlss.dll'])

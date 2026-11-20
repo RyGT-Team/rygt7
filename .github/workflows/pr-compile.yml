@@ -80,7 +80,7 @@ jobs:
           $env:PATH = "$ucrtBin;$msysRoot/usr/bin;$env:PATH"
           $build = Join-Path $env:RUNNER_TEMP 'pr-runtime-build'
           Invoke-Checked "$scripts/cmake.exe" @('-S','.','-B',$build,'-G','Ninja',"-DCMAKE_MAKE_PROGRAM=$scripts/ninja.exe",'-DCMAKE_BUILD_TYPE=Release','-DRTY_BUILD_GUI=OFF','-DBUILD_TESTING=OFF','-DRTY_ENABLE_LTO=OFF',"-DCMAKE_C_COMPILER=$ucrtBin/gcc.exe","-DCMAKE_CXX_COMPILER=$ucrtBin/g++.exe","-DPython3_EXECUTABLE=$nativePython","-DFFMPEG_PREBUILT_DIR=$ffmpeg")
-          Invoke-Checked "$scripts/cmake.exe" @('--build',$build,'--target','ryty','libs','ryty-wheel-probe','--parallel','4')
+          Invoke-Checked "$scripts/cmake.exe" @('--build',$build,'--target','ryty','libs','ryty-wheel-probe','ryty_prewarm','--parallel','4')
           "PINNED_UCRT_BIN=$ucrtBin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - name: Compile launcher
         shell: cmd

@@ -171,6 +171,7 @@ def main():
                         help="a shadNet server folder (shadnet.exe and its DLLs); default this repository's")
     parser.add_argument("--runtime-zstd", type=Path, default=Path(r"C:\msys64\ucrt64\bin\libzstd.dll"),
                         help="the libzstd.dll RyGTServer loads (MSYS2 UCRT64's)")
+    parser.add_argument("--prewarmer", type=Path, help="Built Vulkan compute pre-warmer")
     parser.add_argument("--wheel-probe", type=Path,
                         default=REPO / "build" / "core" / "libs" / "prx" / "libScePad" / "ryty-wheel-probe.exe",
                         help="ryty-wheel-probe.exe built from core/libs/prx/libScePad/tools/WheelProbe.cpp "
@@ -205,6 +206,8 @@ def main():
         raise SystemExit("ryty-wheel-probe.exe not found (build the ryty-wheel-probe target): %s"
                          % args.wheel_probe)
     package.put(wheel_probe, "tools\\ryty-wheel-probe.exe")
+    if args.prewarmer is not None:
+        package.put(args.prewarmer, "tools/ryty_prewarm.exe")
     # FEAT-GTS-269: the DLSS plugin, alone in dlss\\; its own licence (MIT) and NVIDIA's for the NGX loader in it.
     if args.dlss_plugin:
         if not args.dlss_sdk_license:

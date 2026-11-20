@@ -41,8 +41,11 @@ class ReleasePatchTests(unittest.TestCase):
                 (gcc / name / "LICENSE").write_text("runtime notice")
             executable = root / "fixture.exe"
             executable.write_bytes(b"executable fixture")
+            prewarmer = root / "prewarmer.exe"
+            prewarmer.write_bytes(b"prewarmer fixture")
             args = ["package_release.py", "--runtime", str(runtime), "--launcher", str(executable),
                     "--converter", str(executable), "--deps-source", str(deps),
+                    "--prewarmer", str(prewarmer),
                     "--gcc-licenses", str(gcc), "--out", str(root / "out"),
                     "--name", "release-test", "--zip"]
             with patch.object(sys, "argv", args):
@@ -63,6 +66,8 @@ class ReleasePatchTests(unittest.TestCase):
                 # Steering wheels: the launcher's wheel page runs this probe.
                 self.assertIn("tools/ryty-wheel-probe.exe", records)
                 self.assertIn("release-test/tools/ryty-wheel-probe.exe", names)
+                self.assertEqual(archive.read("release-test/tools/ryty_prewarm.exe"), prewarmer.read_bytes())
+                self.assertEqual(records["tools/ryty_prewarm.exe"]["sha256"], hashlib.sha256(prewarmer.read_bytes()).hexdigest())
                 for name in ("CUSA24769.xml", "README.md", "Proper-Offline-Patch-README.txt"):
                     data = archive.read("release-test/patches/" + name)
                     record = records["patches/" + name]
