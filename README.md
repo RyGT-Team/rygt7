@@ -1,5 +1,22 @@
 # ryGT7
 
+> [!IMPORTANT]
+> **This repository is archived and no longer updated.** ryGT7 has moved into
+> **[RyGT](https://github.com/RyGT-Team/RyGT)**, which runs **Gran Turismo Sport and Gran Turismo 7** with one
+> launcher, runtime and renderer.
+>
+> - **Downloads:** the latest RyGT build is on [RyGT's Actions page](https://github.com/RyGT-Team/RyGT/actions)
+>   (the `ci-…` artifact of the newest "RyGT Release CI package" run; a GitHub login is needed to download it).
+> - **Bugs and requests:** open them in [RyGT's issues](https://github.com/RyGT-Team/RyGT/issues).
+>   Issues still open here were moved there or asked to move.
+> - **Moving from ryGT7:** back up your ryGT7 folder, then extract RyGT into it (or into a copy of it). At the first
+>   start RyGT recognizes the ryGT7 folder and moves your saves, settings and offline data into its own layout.
+>   It renames files rather than deleting or overwriting them. Keep the `shaders` folder so fewer shaders compile
+>   again.
+> - **Discord:** https://discord.gg/wXs3YQujSt
+>
+> Everything below describes ryGT7 as it was when it was archived.
+
 An experimental Windows porting runtime for **Gran Turismo 7 (PS4, CUSA24769)**, derived from
 [ryGT](https://github.com/mlgprorektm8/RyGT) and [Ryty](https://github.com/aarvsn/Ryty).
 Rendering uses [shadGT7](https://github.com/RyGT-Team/shadgt7), derived from shadGT/shadPS4.
